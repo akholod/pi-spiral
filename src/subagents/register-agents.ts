@@ -94,8 +94,10 @@ const agentsDir = join(
   'agents',
 );
 
+// Trimmed: pi-subagents rejects a systemPrompt with leading or trailing
+// whitespace, and every prompt file ends with a newline.
 export const readRolePrompt = (role: AgentName): string =>
-  readFileSync(join(agentsDir, `${role}.md`), 'utf8');
+  readFileSync(join(agentsDir, `${role}.md`), 'utf8').trim();
 
 const registerOne = (pi: ExtensionAPI, role: AgentName): Disposable => {
   const definition = ROLE_DEFINITIONS[role];

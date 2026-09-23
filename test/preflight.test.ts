@@ -1,4 +1,7 @@
 import { test } from 'node:test';
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG, parseModelId, validateConfig } from '../src/config.ts';
 import { applyModelOverrides } from '../src/ralplan/index.ts';
@@ -109,4 +112,40 @@ test('preflight: distinct critic model gives no warning', () => {
     'critic',
   ]);
   assert.deepEqual(result, { errors: [], warnings: [] });
+});
+
+// Runs pi-subagents' own runtime-agent validator on every role definition
+// when the package is installed; otherwise the test is skipped.
+test('role definitions pass pi-subagents runtime validation', async (t) => {
+  const registryPath = join(
+    homedir(),
+    '.pi/agent/npm/node_modules/pi-subagents/src/agents/runtime-agent-registry.js',
+  );
+  if (!existsSync(registryPath)) {
+    t.skip('pi-subagents not installed');
+    return;
+  }
+  const { registerRuntimeAgent } = (await import(registryPath)) as {
+    registerRuntimeAgent: (input: unknown) => { dispose(): void };
+  };
+  const definitions: Record<string, unknown>[] = [];
+  const fakePi = {
+    on() {},
+    registerTool() {},
+    events: {
+      emit: (_name: string, request: Record<string, unknown>) => {
+        definitions.push({
+          name: request.name,
+          definition: request.definition,
+        });
+        request.result = { ok: true, registration: { dispose() {} } };
+      },
+    },
+  } as unknown as ExtensionAPI;
+  registerRoleAgents(fakePi).dispose();
+  for (const item of definitions) {
+    const registration = registerRuntimeAgent({ pi: fakePi, ...item });
+    registration.dispose();
+  }
+  assert.equal(definitions.length, 5);
 });
