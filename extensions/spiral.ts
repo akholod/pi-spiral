@@ -18,7 +18,12 @@ import {
   registerRoleAgents,
   type Disposable,
 } from '../src/subagents/register-agents.ts';
-import { parseRalplanArgs, runRalplan } from '../src/ralplan/index.ts';
+import {
+  applyModelOverrides,
+  parseRalplanArgs,
+  runRalplan,
+} from '../src/ralplan/index.ts';
+import { preflightModels } from '../src/ralplan/preflight.ts';
 import { formatUsage } from '../src/ralplan/artifact.ts';
 import type { LoopProgress } from '../src/ralplan/loop.ts';
 import type {
@@ -117,6 +122,24 @@ export default function spiralExtension(pi: ExtensionAPI) {
   // stop them: a slash-command ctx.signal is usually undefined.
   const running = new Set<AbortController>();
 
+  // Advisory preflight warnings are shown once per session.
+  const warned = new Set<string>();
+
+  // Verifies role models against pi's registry before spending tokens.
+  // Returns the error list; empty means go.
+  const preflight = (
+    ctx: ExtensionContext,
+    config: Parameters<typeof preflightModels>[0],
+  ): string[] => {
+    const { errors, warnings } = preflightModels(config, ctx.modelRegistry);
+    for (const warning of warnings) {
+      if (warned.has(warning)) continue;
+      warned.add(warning);
+      ctx.ui.notify(`[ralplan] ${warning}`, 'warning');
+    }
+    return errors;
+  };
+
   const startRun = (parent: AbortSignal | undefined): AbortController => {
     const controller = new AbortController();
     parent?.addEventListener('abort', () => controller.abort(), {
@@ -192,6 +215,16 @@ export default function spiralExtension(pi: ExtensionAPI) {
       const cfg = await configFor(ctx, true);
       if (!cfg) {
         ctx.ui.notify('[ralplan] not started: fix spiral.json first', 'error');
+        return;
+      }
+      const errors = preflight(
+        ctx,
+        applyModelOverrides(cfg.config.ralplan, parsed.models),
+      );
+      if (errors.length > 0) {
+        for (const error of errors)
+          ctx.ui.notify(`[ralplan] ${error}`, 'error');
+        ctx.ui.notify('[ralplan] not started: fix role models first', 'error');
         return;
       }
       ctx.ui.notify(
@@ -275,6 +308,22 @@ export default function spiralExtension(pi: ExtensionAPI) {
             {
               type: 'text',
               text: `ralplan not started, spiral.json is invalid: ${issues}`,
+            },
+          ],
+          details: { outcome: 'not_started' },
+          isError: true,
+        };
+      }
+      const errors = preflight(
+        ctx,
+        applyModelOverrides(loaded.config.ralplan, params.models),
+      );
+      if (errors.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `ralplan not started, role models unavailable: ${errors.join('; ')}`,
             },
           ],
           details: { outcome: 'not_started' },

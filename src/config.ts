@@ -38,8 +38,10 @@ export interface SpiralConfig {
   ralph: RalphConfig;
 }
 
-export const OPUS = 'claude-bridge/claude-opus-5';
-export const GPT_SOL = 'openai-codex/gpt-5.6-sol';
+// `inherit` = the model of the pi session that runs the command. Built-in
+// defaults never name a provider so the package works on any install; the
+// recommended Opus/GPT profile lives in spiral.config.example.jsonc.
+export const INHERIT = 'inherit';
 
 // Hard limits. RALPLAN_MAX_ITERATIONS mirrors the OMC reference (5 rounds).
 // MAX_TIMEOUT_MS is the pi-subagents delegation API cap.
@@ -52,17 +54,17 @@ export const DEFAULT_CONFIG: SpiralConfig = {
     plansDir: '.spiral/plans',
     deliberate: 'auto',
     roles: {
-      planner: { model: OPUS, thinking: 'high', timeoutMs: 900_000 },
-      architect: { model: OPUS, thinking: 'high', timeoutMs: 600_000 },
-      critic: { model: GPT_SOL, thinking: 'high', timeoutMs: 600_000 },
+      planner: { model: INHERIT, thinking: 'high', timeoutMs: 900_000 },
+      architect: { model: INHERIT, thinking: 'high', timeoutMs: 600_000 },
+      critic: { model: INHERIT, thinking: 'high', timeoutMs: 600_000 },
     },
   },
   ralph: {
     maxIterations: 20,
     stateDir: '.spiral/ralph',
     roles: {
-      executor: { model: 'inherit', thinking: 'medium', timeoutMs: 1_800_000 },
-      reviewer: { model: OPUS, thinking: 'high', timeoutMs: 600_000 },
+      executor: { model: INHERIT, thinking: 'medium', timeoutMs: 1_800_000 },
+      reviewer: { model: INHERIT, thinking: 'high', timeoutMs: 600_000 },
     },
   },
 };
@@ -181,6 +183,17 @@ const checkShape = (
   }
 };
 
+// Splits `provider/model` into its parts; `inherit` and malformed ids give
+// undefined.
+export const parseModelId = (
+  model: string,
+): { provider: string; modelId: string } | undefined => {
+  if (model === INHERIT) return undefined;
+  const slash = model.indexOf('/');
+  if (slash <= 0 || slash === model.length - 1) return undefined;
+  return { provider: model.slice(0, slash), modelId: model.slice(slash + 1) };
+};
+
 const validateRole = (
   path: string,
   role: RoleConfig,
@@ -190,6 +203,11 @@ const validateRole = (
     issues.push({
       path: `${path}.model`,
       message: 'must be a non-empty string',
+    });
+  } else if (role.model !== INHERIT && !parseModelId(role.model)) {
+    issues.push({
+      path: `${path}.model`,
+      message: 'must be "inherit" or provider/model',
     });
   }
   if (!THINKING_LEVELS.includes(role.thinking)) {

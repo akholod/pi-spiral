@@ -20,7 +20,8 @@ items.
 - pi >= 0.87
 - `pi-subagents` installed (`pi install npm:pi-subagents`). Spiral registers
   its role agents there and runs them through its delegation API.
-- Providers for the models you configure. Defaults assume
+- No extra providers by default: every role inherits the model selected in
+  the pi session that runs `/ralplan`. The recommended profile below needs
   `pi-claude-bridge` (for `claude-bridge/claude-opus-5`) and the
   `openai-codex` provider (for `openai-codex/gpt-5.6-sol`).
 
@@ -57,6 +58,14 @@ something non-trivial. The result is written to `.spiral/plans/<timestamp>-<slug
 `~/.pi/agent/spiral.json` (user) and `.pi/spiral.json` (project) are merged
 key by key, project wins. JSONC is accepted. Full example with comments:
 [spiral.config.example.jsonc](spiral.config.example.jsonc).
+
+Built-in defaults set every role to `"inherit"`: children run on whatever
+model the session has selected when the command starts, so a cheap chat
+model means cheap planning. The critic then has no independent viewpoint,
+which Spiral warns about once per session. Before any child is launched
+the configured models are checked against pi's registry (known model,
+credentials present) and the run refuses to start on a mismatch.
+Recommended profile:
 
 ```json
 {

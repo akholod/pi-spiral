@@ -16,8 +16,12 @@ and OMC uses `omc.jsonc` with the same user/project layering.
   user key by key (deep merge). JSONC accepted.
 - One `RoleConfig` shape for every role: `model` (fully qualified
   `provider/model` or `inherit`), `thinking`, `timeoutMs`.
-- Defaults live in code (`DEFAULT_CONFIG`) and are always valid: Opus for
-  planner/architect, GPT-5.6 Sol for critic, 5 iterations.
+- Defaults live in code (`DEFAULT_CONFIG`) and are always valid: `inherit`
+  for every role, 5 iterations. Provider-specific defaults were dropped so
+  a fresh install never fails on a missing provider; the Opus / GPT-5.6 Sol
+  profile is documented in the example config instead. Explicit models are
+  preflighted against pi's model registry (existence and credentials)
+  before any child starts.
 - Fail-closed: a parse error, unknown key, wrong shape or invalid value
   makes the loader return `DEFAULT_CONFIG` with `fallback: true` and the
   issue list. `/ralplan` refuses to start unless the user confirms running

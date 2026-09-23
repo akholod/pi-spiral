@@ -73,8 +73,12 @@ boundary and are not an OS sandbox).
 
 Two files, JSONC, deep-merged with project precedence. One `RoleConfig`
 shape (`model`, `thinking`, `timeoutMs`) is reused by every role in both
-workflows so phase 2 needs no migration. Defaults: Opus for planner and
-architect, GPT-5.6 Sol for critic.
+workflows so phase 2 needs no migration. Defaults: `inherit` (session
+model) for every role so the package runs on any pi install; the example
+config carries the recommended Opus / GPT-5.6 Sol profile. Preflight
+(`src/ralplan/preflight.ts`) checks explicit models against
+`ctx.modelRegistry` before the first child and warns once per session when
+the critic shares the planner's model.
 
 ## Artifact
 
