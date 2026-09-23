@@ -7,6 +7,7 @@ import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { applyModelOverrides, runRalplan } from '../src/ralplan/index.ts';
 import { normalizeReview, type Delegate } from '../src/ralplan/loop.ts';
+import { writeArtifact } from '../src/ralplan/artifact.ts';
 import type {
   CriticReview,
   CheckpointDecision,
@@ -56,6 +57,8 @@ const review = (
 interface FakeOptions {
   verdicts: CriticReview[];
   plannerText?: (call: number, task: string) => string;
+  // status returned instead of a result, for the given planner call number
+  plannerStatus?: (call: number) => DelegationResponse['status'] | undefined;
 }
 
 // Records every delegation and answers by role.
@@ -84,6 +87,8 @@ const fakeDelegate = (options: FakeOptions) => {
     });
     if (request.agent === 'spiral-planner') {
       planner++;
+      const status = options.plannerStatus?.(planner);
+      if (status) return { requestId: 'r', status };
       const text =
         options.plannerText?.(planner, request.task) ?? `plan v${planner}`;
       return done({ kind: 'text', text });
@@ -236,6 +241,92 @@ test('interactive: draft feedback, then final approval', async () => {
   assert.ok(fake.calls[1].agent === 'spiral-planner');
   assert.ok(fake.calls[1].task.includes('add tests'));
   assert.ok(fake.calls[2].task.includes('plan v2'));
+});
+
+test('interactive: final feedback on the last iteration is applied', async () => {
+  const fake = fakeDelegate({ verdicts: [review('APPROVE')] });
+  let finals = 0;
+  const result = await run(fake, {
+    config: { ...DEFAULT_CONFIG.ralplan, maxIterations: 1 },
+    interactive: true,
+    onCheckpoint: async (checkpoint): Promise<CheckpointDecision> => {
+      if (checkpoint !== 'final') return { action: 'proceed' };
+      finals++;
+      return finals === 1
+        ? { action: 'changes', feedback: 'rename module' }
+        : { action: 'proceed' };
+    },
+  });
+  assert.equal(result.outcome, 'exhausted');
+  assert.match(result.note ?? '', /not reviewed/);
+  assert.equal(result.finalPlan, 'plan v2');
+  assert.ok(fake.calls.at(-1)?.task.includes('rename module'));
+  assert.ok(result.artifactPath);
+  assert.match(readFileSync(result.artifactPath, 'utf8'), /not reviewed/);
+});
+
+test('interactive: final feedback with budget left goes through review', async () => {
+  const fake = fakeDelegate({
+    verdicts: [review('APPROVE'), review('APPROVE')],
+  });
+  let finals = 0;
+  const result = await run(fake, {
+    interactive: true,
+    onCheckpoint: async (checkpoint): Promise<CheckpointDecision> => {
+      if (checkpoint !== 'final') return { action: 'proceed' };
+      finals++;
+      return finals === 1
+        ? { action: 'changes', feedback: 'rename module' }
+        : { action: 'proceed' };
+    },
+  });
+  assert.equal(result.outcome, 'approved');
+  assert.equal(result.iterations.length, 2);
+  assert.deepEqual(
+    fake.calls.map((call) => call.agent),
+    [
+      'spiral-planner',
+      'spiral-architect',
+      'spiral-critic',
+      'spiral-planner',
+      'spiral-architect',
+      'spiral-critic',
+    ],
+  );
+  // Revised plan (v2) is what the second review round sees.
+  assert.ok(fake.calls[4].task.includes('plan v2'));
+  assert.equal(result.iterations[1].plan, 'plan v2');
+});
+
+test('cancelled child yields aborted, not failed', async () => {
+  const fake = fakeDelegate({
+    verdicts: [],
+    plannerStatus: (call) => (call === 1 ? 'cancelled' : undefined),
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'aborted');
+  assert.equal(result.error, undefined);
+});
+
+test('already aborted signal stops before the first child', async () => {
+  const fake = fakeDelegate({ verdicts: [] });
+  const controller = new AbortController();
+  controller.abort();
+  const result = await run(fake, { signal: controller.signal });
+  assert.equal(result.outcome, 'aborted');
+  assert.equal(fake.calls.length, 0);
+});
+
+test('artifact names are unique per run and never overwritten', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'spiral-art-'));
+  const first = await run(fakeDelegate({ verdicts: [] }), { cwd });
+  const second = await run(fakeDelegate({ verdicts: [] }), { cwd });
+  assert.ok(first.artifactPath && second.artifactPath);
+  assert.notEqual(first.artifactPath, second.artifactPath);
+  assert.throws(
+    () => writeArtifact(first.artifactPath as string, 'x'),
+    /EEXIST/,
+  );
 });
 
 test('interactive: reject at final writes nothing', async () => {

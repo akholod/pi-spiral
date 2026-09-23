@@ -140,6 +140,18 @@ export const delegate = (
   new Promise((resolve, reject) => {
     const request = toRequest(options);
 
+    // Already cancelled: do not launch a child at all.
+    if (options.signal?.aborted) {
+      resolve({
+        requestId: request.requestId,
+        ownerRunId: request.ownerRunId,
+        nodeId: request.nodeId,
+        status: 'cancelled',
+        error: 'aborted before start',
+      });
+      return;
+    }
+
     const startTimer = setTimeout(() => {
       cleanup();
       reject(new Error('pi-subagents did not pick up the delegation request'));

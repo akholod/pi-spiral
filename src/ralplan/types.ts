@@ -215,4 +215,6 @@ export interface RalplanResult {
   // set only when a file was actually written
   artifactPath?: string;
   error?: string;
+  // human-readable caveat about the final plan (e.g. unreviewed feedback)
+  note?: string;
 }

@@ -120,6 +120,13 @@ test('loadConfig ignores project config when the project is untrusted', () => {
 
 test('deliberate mode auto-detects risk signals', () => {
   assert.equal(detectPlanMode('add oauth login', 'auto'), 'deliberate');
+  assert.equal(detectPlanMode('security hardening pass', 'auto'), 'deliberate');
+  assert.equal(
+    detectPlanMode('breaking change in public api', 'auto'),
+    'deliberate',
+  );
+  assert.equal(detectPlanMode('fix XSS in comments', 'auto'), 'deliberate');
+  assert.equal(detectPlanMode('add authentication', 'auto'), 'deliberate');
   assert.equal(detectPlanMode('rename a variable', 'auto'), 'short');
   assert.equal(detectPlanMode('rename a variable', 'always'), 'deliberate');
   assert.equal(detectPlanMode('drop the users table', 'never'), 'short');

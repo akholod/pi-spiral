@@ -4,8 +4,55 @@
 
 import type { CriticReview, PlanMode } from './types.ts';
 
-const HIGH_RISK_PATTERN =
-  /\b(auth|oauth|jwt|session|password|secret|token|migration|migrate|drop|delete|destructive|truncate|production|prod|incident|compliance|gdpr|pii|public api|breaking)\b/i;
+// OMC auto-deliberate signals: auth/security, migrations, destructive
+// changes, production incidents, compliance/PII, public API breakage.
+const HIGH_RISK_PATTERN = new RegExp(
+  [
+    'auth\\w*',
+    'oauth',
+    'sso',
+    'jwt',
+    'sessions?',
+    'passwords?',
+    'secrets?',
+    'tokens?',
+    'credentials?',
+    'permissions?',
+    'rbac',
+    'security',
+    'harden\\w*',
+    'vulnerab\\w*',
+    'xss',
+    'csrf',
+    'injection',
+    'encrypt\\w*',
+    'migrat\\w*',
+    'schema change',
+    'drop',
+    'delete',
+    'destructive',
+    'truncate',
+    'purge',
+    'wipe',
+    'data loss',
+    'production',
+    'prod',
+    'incident',
+    'outage',
+    'rollback',
+    'compliance',
+    'gdpr',
+    'hipaa',
+    'pii',
+    'public api',
+    'breaking( change)?',
+    'backwards?[- ]compat\\w*',
+    'deprecat\\w*',
+  ].join('|'),
+  'i',
+).source;
+
+const HIGH_RISK = new RegExp(`\\b(${HIGH_RISK_PATTERN})\\b`, 'i');
 
 export const detectPlanMode = (
   task: string,
@@ -13,7 +60,7 @@ export const detectPlanMode = (
 ): PlanMode => {
   if (setting === 'always') return 'deliberate';
   if (setting === 'never') return 'short';
-  return HIGH_RISK_PATTERN.test(task) ? 'deliberate' : 'short';
+  return HIGH_RISK.test(task) ? 'deliberate' : 'short';
 };
 
 const modeBlock = (mode: PlanMode): string =>

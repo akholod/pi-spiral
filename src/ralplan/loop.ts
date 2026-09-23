@@ -65,7 +65,26 @@ class RoleFailure extends Error {
 const failureDetail = (response: DelegationResponse): string =>
   response.status + (response.error ? `: ${response.error}` : '');
 
+// Raised when a child ended because of cancellation (ours or the user's
+// interrupt) so the loop reports `aborted`, not `failed`.
+class Cancelled extends Error {
+  constructor(role: RoleName) {
+    super(`${role} cancelled`);
+    this.name = 'Cancelled';
+  }
+}
+
+const CANCEL_STATUSES = new Set(['cancelled', 'interrupted']);
+
+const ensureNotCancelled = (
+  role: RoleName,
+  response: DelegationResponse,
+): void => {
+  if (CANCEL_STATUSES.has(response.status)) throw new Cancelled(role);
+};
+
 const textOf = (role: RoleName, response: DelegationResponse): string => {
+  ensureNotCancelled(role, response);
   if (response.status !== 'completed' || response.result?.kind !== 'text') {
     throw new RoleFailure(role, failureDetail(response));
   }
@@ -125,6 +144,7 @@ const addUsage = (total: UsageTotals, response: DelegationResponse): void => {
 };
 
 const reviewOf = (response: DelegationResponse): CriticReview => {
+  ensureNotCancelled('critic', response);
   if (
     response.status !== 'completed' ||
     response.result?.kind !== 'structured'
@@ -190,7 +210,9 @@ export const runRalplanLoop = async (
   const iterations: IterationRecord[] = [];
   const usage = emptyUsage();
   let plan = '';
-  let pendingFeedback: string | null = null;
+  // set when the plan was already revised from user feedback and the next
+  // iteration must go straight to review
+  let reviewOnly = false;
   let feedbackRounds = 0;
 
   const planner = (iteration: number, suffix: string, text: string) =>
@@ -208,7 +230,30 @@ export const runRalplanLoop = async (
   const done = (
     outcome: LoopResult['outcome'],
     error?: string,
-  ): LoopResult => ({ outcome, iterations, finalPlan: plan, usage, error });
+    note?: string,
+  ): LoopResult => ({
+    outcome,
+    iterations,
+    finalPlan: plan,
+    usage,
+    error,
+    note,
+  });
+
+  const applyUserFeedback = async (
+    iteration: number,
+    feedback: string,
+  ): Promise<void> => {
+    feedbackRounds++;
+    plan = textOf(
+      'planner',
+      await planner(
+        iteration,
+        `-feedback${feedbackRounds}`,
+        buildPlannerUserFeedbackTask(task, mode, plan, feedback),
+      ),
+    );
+  };
 
   // Asks the user at a checkpoint; returns feedback text if they requested
   // changes, 'skip' for the draft shortcut, or null to proceed.
@@ -228,44 +273,29 @@ export const runRalplanLoop = async (
       if (options.signal?.aborted) return done('aborted');
 
       const previous = iterations.at(-1);
-      let plannerTask: string;
-      if (pendingFeedback !== null) {
-        plannerTask = buildPlannerUserFeedbackTask(
-          task,
-          mode,
-          plan,
-          pendingFeedback,
-        );
-        pendingFeedback = null;
-      } else if (previous) {
-        plannerTask = buildPlannerRevisionTask(
-          task,
-          mode,
-          iteration,
-          previous.plan,
-          previous.architectReview,
-          previous.criticReview,
-        );
+      if (reviewOnly) {
+        reviewOnly = false;
       } else {
-        plannerTask = buildPlannerInitialTask(task, mode);
+        const plannerTask = previous
+          ? buildPlannerRevisionTask(
+              task,
+              mode,
+              iteration,
+              previous.plan,
+              previous.architectReview,
+              previous.criticReview,
+            )
+          : buildPlannerInitialTask(task, mode);
+        plan = textOf('planner', await planner(iteration, '', plannerTask));
       }
-      plan = textOf('planner', await planner(iteration, '', plannerTask));
 
       // Checkpoint 1 (draft): user may request changes before any review.
       // Feedback rounds are bounded by the same maxIterations budget.
       if (iteration === 1) {
         let decision = await checkpoint('draft');
         while (typeof decision === 'string' && decision !== 'skip') {
-          feedbackRounds++;
-          if (feedbackRounds > config.maxIterations) break;
-          plan = textOf(
-            'planner',
-            await planner(
-              iteration,
-              `-feedback${feedbackRounds}`,
-              buildPlannerUserFeedbackTask(task, mode, plan, decision),
-            ),
-          );
+          if (feedbackRounds >= config.maxIterations) break;
+          await applyUserFeedback(iteration, decision);
           decision = await checkpoint('draft');
         }
         if (decision === 'skip') return done('approved');
@@ -307,11 +337,24 @@ export const runRalplanLoop = async (
       // sends the plan through another full consensus round.
       const decision = await checkpoint('final');
       if (decision === null || decision === 'skip') return done('approved');
-      pendingFeedback = decision;
+      // Feedback is applied right away so it is never lost; the review of
+      // the revised plan needs one more iteration of budget.
+      await applyUserFeedback(iteration, decision);
+      if (iteration === config.maxIterations) {
+        return done(
+          'exhausted',
+          undefined,
+          'user feedback applied to the plan but not reviewed: iteration limit reached',
+        );
+      }
+      reviewOnly = true;
     }
     return done('exhausted');
   } catch (error) {
     if (error instanceof UserRejected) return done('rejected');
+    if (error instanceof Cancelled || options.signal?.aborted) {
+      return done('aborted');
+    }
     const message = error instanceof Error ? error.message : String(error);
     return done('failed', message);
   }

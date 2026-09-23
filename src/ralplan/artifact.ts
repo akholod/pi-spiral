@@ -11,13 +11,21 @@ export const slugify = (text: string): string =>
     .slice(0, 60) || 'plan';
 
 const timestamp = (): string =>
-  new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  new Date().toISOString().replace(/[:.]/g, '-').slice(0, 23);
 
+// `<ISO ms>-<runId prefix>-<slug>.md`: the run id keeps concurrent runs
+// with the same task in the same millisecond unique.
 export const buildArtifactPath = (
   cwd: string,
   plansDir: string,
   task: string,
-): string => join(cwd, plansDir, `${timestamp()}-${slugify(task)}.md`);
+  runId: string,
+): string =>
+  join(
+    cwd,
+    plansDir,
+    `${timestamp()}-${runId.slice(0, 8)}-${slugify(task)}.md`,
+  );
 
 // Frontmatter `status` is a bare token so the YAML stays valid and greppable;
 // details go to `note`.
@@ -34,7 +42,10 @@ const yamlString = (text: string): string => JSON.stringify(text);
 const noteLine = (result: RalplanResult): string => {
   const rounds = result.iterations.length;
   if (result.outcome === 'exhausted') {
-    return `critic did not approve after ${rounds} iteration(s); latest version`;
+    return (
+      result.note ??
+      `critic did not approve after ${rounds} iteration(s); latest version`
+    );
   }
   if (result.outcome === 'aborted')
     return 'cancelled; latest draft, not reviewed';
@@ -104,7 +115,8 @@ export const formatUsage = (usage: UsageTotals): string =>
   `${usage.input} in / ${usage.output} out tokens (cache ${usage.cacheRead} read), ` +
   `$${usage.cost.toFixed(4)}, ${Math.round(usage.durationMs / 1000)}s`;
 
+// Exclusive create: never overwrite an existing plan.
 export const writeArtifact = (path: string, content: string): void => {
   mkdirSync(join(path, '..'), { recursive: true });
-  writeFileSync(path, content, 'utf8');
+  writeFileSync(path, content, { encoding: 'utf8', flag: 'wx' });
 };

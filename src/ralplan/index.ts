@@ -73,6 +73,7 @@ export const runRalplan = async (
       options.cwd,
       config.plansDir,
       options.task,
+      request.runId,
     );
     writeArtifact(artifactPath, renderArtifact(request, result));
     result.artifactPath = artifactPath;

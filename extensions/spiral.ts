@@ -65,6 +65,7 @@ const summarize = (result: RalplanResult): string => {
       );
       break;
   }
+  if (result.note) lines.push(`note: ${result.note}`);
   if (result.artifactPath) lines.push(`artifact: ${result.artifactPath}`);
   else if (result.outcome !== 'rejected') lines.push('artifact: none written');
   lines.push(`usage: ${formatUsage(result.usage)}`);
@@ -78,14 +79,22 @@ const DRAFT_OPTIONS = ['Proceed to review', 'Request changes', 'Skip review'];
 const FINAL_OPTIONS = ['Approve', 'Request changes', 'Reject'];
 
 const makeCheckpointHandler =
-  (ctx: ExtensionCommandContext): CheckpointHandler =>
+  (pi: ExtensionAPI, ctx: ExtensionCommandContext): CheckpointHandler =>
   async (checkpoint, plan): Promise<CheckpointDecision> => {
     const title =
       checkpoint === 'draft'
         ? 'Ralplan: initial draft'
         : 'Ralplan: critic approved';
-    // Show the plan before asking; the dialog itself has no room for it.
-    ctx.ui.notify(plan.slice(0, 4000), 'info');
+    // Show the full plan in the transcript before asking; the select
+    // dialog itself has no room for it and notifications truncate.
+    pi.sendMessage(
+      {
+        customType: 'spiral-ralplan-checkpoint',
+        content: `# ${title}\n\n${plan}`,
+        display: true,
+      },
+      { triggerTurn: false },
+    );
     const options = checkpoint === 'draft' ? DRAFT_OPTIONS : FINAL_OPTIONS;
     const choice = await ctx.ui.select(title, options);
     if (choice === 'Request changes') {
@@ -104,6 +113,18 @@ const makeCheckpointHandler =
 export default function spiralExtension(pi: ExtensionAPI) {
   let loaded: LoadedConfig | null = null;
   let agents: Disposable | null = null;
+  // Controllers of running /ralplan commands, so `/ralplan-cancel` can
+  // stop them: a slash-command ctx.signal is usually undefined.
+  const running = new Set<AbortController>();
+
+  const startRun = (parent: AbortSignal | undefined): AbortController => {
+    const controller = new AbortController();
+    parent?.addEventListener('abort', () => controller.abort(), {
+      once: true,
+    });
+    running.add(controller);
+    return controller;
+  };
 
   const load = (ctx: {
     cwd: string;
@@ -173,22 +194,31 @@ export default function spiralExtension(pi: ExtensionAPI) {
         ctx.ui.notify('[ralplan] not started: fix spiral.json first', 'error');
         return;
       }
-      ctx.ui.notify(`[ralplan] planning: ${parsed.task}`, 'info');
-      const result = await runRalplan({
-        pi,
-        config: cfg.config.ralplan,
-        cwd: ctx.cwd,
-        task: parsed.task,
-        deliberate: parsed.deliberate,
-        interactive: parsed.interactive,
-        models: parsed.models,
-        onCheckpoint: parsed.interactive
-          ? makeCheckpointHandler(ctx)
-          : undefined,
-        signal: ctx.signal,
-        onProgress: (progress) =>
-          ctx.ui.notify(formatProgress(progress), 'info'),
-      });
+      ctx.ui.notify(
+        `[ralplan] planning: ${parsed.task} (stop with /ralplan-cancel)`,
+        'info',
+      );
+      const controller = startRun(ctx.signal);
+      let result: RalplanResult;
+      try {
+        result = await runRalplan({
+          pi,
+          config: cfg.config.ralplan,
+          cwd: ctx.cwd,
+          task: parsed.task,
+          deliberate: parsed.deliberate,
+          interactive: parsed.interactive,
+          models: parsed.models,
+          onCheckpoint: parsed.interactive
+            ? makeCheckpointHandler(pi, ctx)
+            : undefined,
+          signal: controller.signal,
+          onProgress: (progress) =>
+            ctx.ui.notify(formatProgress(progress), 'info'),
+        });
+      } finally {
+        running.delete(controller);
+      }
       ctx.ui.notify(summarize(result), isSuccess(result) ? 'info' : 'error');
       pi.sendMessage(
         {
@@ -274,6 +304,18 @@ export default function spiralExtension(pi: ExtensionAPI) {
         },
         isError: !isSuccess(result),
       };
+    },
+  });
+
+  pi.registerCommand('ralplan-cancel', {
+    description: 'Cancel running /ralplan loops',
+    handler: async (_args, ctx) => {
+      if (running.size === 0) {
+        ctx.ui.notify('[ralplan] nothing is running', 'info');
+        return;
+      }
+      for (const controller of running) controller.abort();
+      ctx.ui.notify(`[ralplan] cancelling ${running.size} run(s)`, 'warning');
     },
   });
 
