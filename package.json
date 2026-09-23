@@ -1,0 +1,32 @@
+{
+  "name": "pi-spiral",
+  "version": "0.1.0",
+  "description": "Pi extension: ralplan (consensus planning: planner + architect + critic) and ralph (persistent execution loop), ported from oh-my-claudecode",
+  "type": "module",
+  "license": "MIT",
+  "keywords": ["pi-package", "pi", "pi-coding-agent", "ralplan", "ralph", "planning"],
+  "pi": {
+    "extensions": ["./extensions"]
+  },
+  "files": ["extensions", "src", "agents", "docs", "spiral.config.example.jsonc", "README.md"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --test test/*.test.ts",
+    "lint": "eslint . && prettier --check \"**/*.ts\" \"**/*.json\" \"**/*.md\"",
+    "fix": "eslint . --fix && prettier --write \"**/*.ts\" \"**/*.json\" \"**/*.md\"",
+    "dev": "pi -e ."
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-ai": "*",
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.87.0",
+    "@types/node": "^24.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-metarhia": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.6.0"
+  }
+}

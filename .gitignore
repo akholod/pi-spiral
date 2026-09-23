@@ -1,0 +1,6 @@
+node_modules/
+dist/
+.spiral/
+.omc/
+*.log
+.DS_Store
