@@ -84,6 +84,17 @@ export const formatCommandResults = (results: CommandResult[]): string => {
     .join('\n\n');
 };
 
+// Current HEAD commit, or null outside a git work tree.
+export const gitHead = (cwd: string): Promise<string | null> =>
+  new Promise((resolve) => {
+    execFile(
+      'git',
+      ['rev-parse', 'HEAD'],
+      { cwd, timeout: 15_000, encoding: 'utf8' },
+      (error, stdout) => resolve(error ? null : stdout.trim() || null),
+    );
+  });
+
 // Paths reported by `git status --porcelain` (modified, added, deleted,
 // untracked), or null outside a git work tree.
 export const gitDirtyFiles = (cwd: string): Promise<string[] | null> =>

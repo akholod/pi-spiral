@@ -69,17 +69,30 @@ something non-trivial. The result is written to `.spiral/plans/<timestamp>-<slug
 
 Flow (OMC ralph steps 1-8): draft PRD → for each story with `passes:
 false`: executor implements, reports per-criterion evidence, the loop
-runs the verify commands and marks the story → when all pass: reviewer
-verifies every criterion (APPROVE with gaps is downgraded, rejections
-re-open stories) → cleaner runs the ai-slop-cleaner workflow on the
-changed files → verify commands again (two repair attempts) → done.
+runs the verify commands and marks the story → when all pass: verify
+commands must be green (a red run re-opens the PRD) → reviewer verifies
+every criterion with evidence (APPROVE with gaps is downgraded,
+rejections re-open stories) → cleaner runs the ai-slop-cleaner workflow
+on the changed files → scope check and verify commands again (two repair
+attempts; a repair sends the code back to the reviewer) → done.
 
 Flags: `--no-deslop`, `--reviewer-agent critic|architect`, `--plan
 <artifact>`, `--resume [runId]`, `--prd|--executor|--reviewer|--cleaner
-<provider/model>`. Outcomes: `completed`, `exhausted` (iteration or review
+<provider/model>`. Outcomes: `completed`, `exhausted` (story or review
 budget), `blocked` (executor needs you, or one story failed three times),
-`aborted`, `failed`. State lives in `.spiral/ralph/<runId>/` (`prd.json`,
-`run.json`, `progress.md`).
+`aborted`, `failed`. State lives outside the project in
+`~/.pi/agent/spiral/ralph/<project>/<runId>/` (`prd.json`, `run.json`,
+`progress.md`, `integrity.json`); completed runs cannot be resumed and
+only one run per project is active at a time.
+
+What is checked in code rather than trusted from a model: criteria need
+substantive evidence, not a flag; regression commands are run by the loop
+and their absence is reported as `verification: none`; commands proposed
+by the PRD planner run only after you confirm them in `/ralph` (the
+`ralph` tool never runs them); edits to the run state from outside the
+loop are detected and fail the run; cleanup may not touch files outside
+the run's changed set; a moved HEAD (a child committed) is reported.
+None of this is a sandbox: the executor and cleaner have a shell.
 
 A refuted acceptance criterion is never silently dropped: the executor
 reports an amendment with evidence, the loop records it in the story's

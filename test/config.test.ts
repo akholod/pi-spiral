@@ -87,6 +87,20 @@ const home = mkdtempSync(join(tmpdir(), 'spiral-home-'));
 const load = (cwd: string, extra: { projectTrusted?: boolean } = {}) =>
   loadConfig(cwd, { homeDir: home, ...extra });
 
+test('ralph.stateDir must be outside the project', () => {
+  const bad = deepMerge(DEFAULT_CONFIG, {
+    ralph: { stateDir: '.spiral/ralph' },
+  });
+  assert.deepEqual(
+    validateConfig(bad).map((issue) => issue.path),
+    ['ralph.stateDir'],
+  );
+  const dots = deepMerge(DEFAULT_CONFIG, { ralph: { stateDir: '~/../x' } });
+  assert.equal(validateConfig(dots).length, 1);
+  const ok = deepMerge(DEFAULT_CONFIG, { ralph: { stateDir: '/tmp/ralph' } });
+  assert.deepEqual(validateConfig(ok), []);
+});
+
 test('loadConfig falls back to defaults on invalid project config', () => {
   const cwd = tempProject();
   writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"ralplan": null}');

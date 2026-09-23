@@ -183,6 +183,10 @@ export type RalphOutcome =
 
 export type DeslopStatus = 'done' | 'skipped' | 'failed' | 'not-reached';
 
+// State of the loop-run regression commands at the end of the run.
+// 'none' = no commands were configured or confirmed, so nothing was run.
+export type Verification = 'passed' | 'failed' | 'none';
+
 export interface RalphResult {
   outcome: RalphOutcome;
   runId: string;
@@ -192,6 +196,10 @@ export interface RalphResult {
   reviews: ReviewReport[];
   changedFiles: string[];
   deslop: DeslopStatus;
+  verification: Verification;
+  verifyCommands: string[];
+  // true when HEAD moved during the run (a child committed)
+  headChanged: boolean;
   usage: UsageTotals;
   note?: string;
   error?: string;

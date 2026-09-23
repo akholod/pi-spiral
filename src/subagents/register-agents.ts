@@ -64,12 +64,18 @@ const ROLE_DEFINITIONS: Record<AgentName, RoleDefinition> = {
   },
 };
 
+// `model: 'inherit'` pins the parent session's model explicitly, so an
+// operator's `subagents.defaultModel` does not silently take over; a
+// concrete model from spiral.json is passed per delegation request.
+export const AGENT_DEFAULT_MODEL = 'inherit';
+
 interface RegisterRequest {
   version: 1;
   name: string;
   definition: {
     description: string;
     systemPrompt: string;
+    model: string;
     tools?: readonly string[];
   };
   result?:
@@ -99,7 +105,8 @@ const registerOne = (pi: ExtensionAPI, role: AgentName): Disposable => {
     definition: {
       description: definition.description,
       systemPrompt: readRolePrompt(role),
-      tools: definition.tools,
+      model: AGENT_DEFAULT_MODEL,
+      ...(definition.tools ? { tools: definition.tools } : {}),
     },
   };
   pi.events.emit(RUNTIME_AGENT_REGISTER_EVENT, request);

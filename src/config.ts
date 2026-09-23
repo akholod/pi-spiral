@@ -28,8 +28,9 @@ export interface RalplanConfig {
 export type ReviewerAgent = 'critic' | 'architect';
 
 export interface RalphConfig {
-  // loop iterations: story attempts + review rounds
+  // story attempts (review rounds have their own budget)
   maxIterations: number;
+  // run state root, outside the working tree: `~/...` or absolute
   stateDir: string;
   // post-approval ai-slop-cleaner pass on changed files (OMC step 7.5)
   deslop: boolean;
@@ -78,7 +79,7 @@ export const DEFAULT_CONFIG: SpiralConfig = {
   },
   ralph: {
     maxIterations: 20,
-    stateDir: '.spiral/ralph',
+    stateDir: '~/.pi/agent/spiral/ralph',
     deslop: true,
     reviewerAgent: 'critic',
     maxReviewAttempts: 3,
@@ -268,6 +269,21 @@ const validateDir = (
   }
 };
 
+// ralph state must live outside the project: `~/x` or an absolute path.
+const validateStateDir = (
+  path: string,
+  value: string,
+  issues: ConfigIssue[],
+): void => {
+  if (typeof value !== 'string' || value.trim() === '') {
+    issues.push({ path, message: 'must be a non-empty string' });
+  } else if (!(value.startsWith('~/') || value.startsWith('/'))) {
+    issues.push({ path, message: 'must start with ~/ or / (outside cwd)' });
+  } else if (value.split(/[\\/]/).includes('..')) {
+    issues.push({ path, message: 'must not contain ..' });
+  }
+};
+
 export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
   const issues: ConfigIssue[] = [];
   const { ralplan, ralph } = config;
@@ -298,7 +314,7 @@ export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
       message: `must be <= ${RALPH_MAX_ITERATIONS}`,
     });
   }
-  validateDir('ralph.stateDir', ralph.stateDir, issues);
+  validateStateDir('ralph.stateDir', ralph.stateDir, issues);
   if (typeof ralph.deslop !== 'boolean') {
     issues.push({ path: 'ralph.deslop', message: 'must be a boolean' });
   }

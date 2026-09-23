@@ -115,7 +115,9 @@ export type AmendmentError =
   | 'reason-required'
   | 'evidence-too-short'
   | 'replacement-required'
-  | 'replacement-not-allowed';
+  | 'replacement-not-allowed'
+  // superseding the last active criterion would leave nothing to verify
+  | 'last-criterion';
 
 // Applies an amendment or returns a closed error code without mutating.
 // A refuted criterion may leave the active list only through here.
@@ -139,6 +141,9 @@ export const amendCriterion = (
   if (input.kind === 'replaced' && !replacement) return 'replacement-required';
   if (input.kind === 'superseded' && input.replacement !== undefined) {
     return 'replacement-not-allowed';
+  }
+  if (input.kind === 'superseded' && story.acceptanceCriteria.length === 1) {
+    return 'last-criterion';
   }
   const next = [...story.acceptanceCriteria];
   next.splice(index, 1);
@@ -241,6 +246,10 @@ export const checkDraft = (draft: PrdDraft): string[] => {
     if (id === '') problems.push('a story has an empty id');
     if (ids.has(id)) problems.push(`duplicate story id ${id}`);
     ids.add(id);
+    if (story.title.trim() === '') problems.push(`${id}: empty title`);
+    if (story.description.trim() === '') {
+      problems.push(`${id}: empty description`);
+    }
     if (story.acceptanceCriteria.length === 0) {
       problems.push(`${id}: no acceptance criteria`);
     }
@@ -316,11 +325,18 @@ const normalizeStory = (raw: unknown): Story | null => {
   const s = raw as Record<string, unknown>;
   if (
     typeof s.id !== 'string' ||
+    s.id.trim() === '' ||
     typeof s.title !== 'string' ||
+    s.title.trim() === '' ||
     typeof s.description !== 'string' ||
     !isStringArray(s.acceptanceCriteria) ||
+    s.acceptanceCriteria.length === 0 ||
+    s.acceptanceCriteria.some((c) => c.trim() === '') ||
     typeof s.priority !== 'number' ||
-    typeof s.passes !== 'boolean'
+    typeof s.passes !== 'boolean' ||
+    typeof s.reviewerVerified !== 'boolean' ||
+    !Number.isInteger(s.attempts) ||
+    !isStringArray(s.notes)
   ) {
     return null;
   }
@@ -344,9 +360,9 @@ const normalizeStory = (raw: unknown): Story | null => {
     criterionAmendments: ledger,
     priority: s.priority,
     passes: s.passes,
-    reviewerVerified: s.reviewerVerified === true,
-    attempts: typeof s.attempts === 'number' ? s.attempts : 0,
-    notes: isStringArray(s.notes) ? s.notes : [],
+    reviewerVerified: s.reviewerVerified,
+    attempts: s.attempts as number,
+    notes: s.notes,
   };
 };
 
@@ -357,12 +373,16 @@ export const normalizePrd = (raw: unknown): Prd | null => {
     typeof p.project !== 'string' ||
     typeof p.branchName !== 'string' ||
     typeof p.description !== 'string' ||
-    !Array.isArray(p.userStories)
+    !Array.isArray(p.userStories) ||
+    p.userStories.length === 0 ||
+    !isStringArray(p.verify)
   ) {
     return null;
   }
   const stories = p.userStories.map(normalizeStory);
   if (stories.some((s) => s === null)) return null;
+  const ids = new Set((stories as Story[]).map((s) => s.id));
+  if (ids.size !== stories.length) return null;
   return {
     project: p.project,
     branchName: p.branchName,
@@ -370,7 +390,7 @@ export const normalizePrd = (raw: unknown): Prd | null => {
     ...(typeof p.planArtifact === 'string'
       ? { planArtifact: p.planArtifact }
       : {}),
-    verify: isStringArray(p.verify) ? p.verify : [],
+    verify: p.verify,
     userStories: stories as Story[],
   };
 };

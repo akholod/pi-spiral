@@ -123,26 +123,32 @@ Design in ADR 0003. Runtime flow:
    │
    ▼
 delegate(spiral-planner, roles.prd) -> PrdDraft (structured)   [retry once if generic]
-   │   .spiral/ralph/<runId>/{prd.json, run.json, progress.md}
+   │   verify commands: config.verify, else PRD proposal after user confirm, else none
+   │   ~/.pi/agent/spiral/ralph/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
    ▼
-while iterations < maxIterations
-   ├─ next story with passes=false ?
+loop (one active run per project; every persist checks integrity.json)
+   ├─ next story with passes=false ?  (iterations < maxIterations else exhausted)
    │    ├─ delegate(spiral-executor, roles.executor) -> ExecutorReport
    │    ├─ apply amendments (ledger), collect changed files (report + git delta)
-   │    ├─ run verify commands (config.verify or prd.verify)
-   │    └─ every criterion met + green ? passes=true : notes, retry (3 -> blocked)
+   │    ├─ run verify commands
+   │    └─ every criterion met WITH evidence + green ? passes=true : notes, retry (3 -> blocked)
    └─ all pass ?
+        ├─ run verify; red -> RV-nnn regression story, back to stories
         ├─ reviewRounds < maxReviewAttempts else exhausted
-        ├─ run verify; delegate(spiral-critic|architect, roles.reviewer) -> ReviewReport
-        ├─ normalize: APPROVE needs every criterion VERIFIED, no CRITICAL/MAJOR
+        ├─ delegate(spiral-critic|architect, roles.reviewer) -> ReviewReport
+        ├─ normalize: every criterion VERIFIED with evidence, no CRITICAL/MAJOR
         ├─ REJECT -> re-open named stories / add RV-nnn story, continue
         └─ APPROVE -> deslop? delegate(spiral-cleaner) on changed files
-                     -> verify again (2 executor repair attempts) -> completed
+                     -> verify again (2 executor repair attempts)
+                     -> git delta outside scope ? failed
+                     -> repaired ? back to review : completed
 ```
 
-The loop owns every state file; children are told never to read or edit
-it. Nothing is committed. `--resume [runId]` reloads `prd.json` and
-`run.json` and continues. `src/ralph/prd.ts` holds the PRD model with the
+The loop owns every state file and detects external edits (it cannot
+prevent them: writer children have a shell). Nothing is committed by the
+loop, and a moved HEAD is reported. `--resume [runId]` reloads `prd.json`
+and `run.json` (UUID only, not for completed runs, drift needs explicit
+consent) and continues. `src/ralph/prd.ts` holds the PRD model with the
 evidence-preserving amendment ledger (OMC ADR 03664), `state.ts` the run
 files and progress rendering, `verify.ts` the shell runner and git delta,
 `prompts.ts` the role tasks, `loop.ts` the invariants.

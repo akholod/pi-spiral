@@ -135,6 +135,20 @@ test('amendCriterion: closed errors, ledger keeps the original, resets passes', 
   assert.equal(story.passes, false);
   assert.equal(story.criterionAmendments[0].original, 'f() returns 1');
   assert.equal(story.criterionAmendments[0].authority, 'ralph:run');
+  // the last active criterion cannot be superseded away
+  assert.equal(
+    amendCriterion(
+      story,
+      {
+        kind: 'superseded',
+        original: 'f() returns 2',
+        reason: 'r',
+        evidence: 'enumerated 12 not 16',
+      },
+      'a',
+    ),
+    'last-criterion',
+  );
   // an original can be amended only once
   story.acceptanceCriteria.push('f() returns 1');
   assert.equal(
@@ -166,6 +180,21 @@ test('normalizePrd fails closed on a contradictory ledger', () => {
   });
   assert.equal(normalizePrd(JSON.parse(JSON.stringify(p))), null);
   assert.equal(normalizePrd({ project: 'x' }), null);
+  // no stories, or a story without criteria, is not a PRD
+  const empty = { ...prd(), userStories: [] };
+  assert.equal(normalizePrd(empty), null);
+  const bare = prd();
+  bare.userStories[0].acceptanceCriteria = [];
+  assert.equal(normalizePrd(JSON.parse(JSON.stringify(bare))), null);
+});
+
+test('checkDraft requires title and description', () => {
+  const bad = draft();
+  bad.stories[0].title = ' ';
+  bad.stories[1].description = '';
+  const problems = checkDraft(bad);
+  assert.ok(problems.some((p) => p === 'US-001: empty title'));
+  assert.ok(problems.some((p) => p === 'US-002: empty description'));
 });
 
 test('addReviewStory appends with the next priority', () => {

@@ -123,14 +123,25 @@ const summarizeRalph = (result: RalphResult): string => {
   }
   if (result.note) lines.push(`note: ${result.note}`);
   lines.push(formatPrdStatus(status));
+  lines.push(
+    result.verification === 'none'
+      ? 'verification: NONE (no regression commands ran; only executor and reviewer evidence)'
+      : `verification: ${result.verification} (${result.verifyCommands.join(' && ')})`,
+  );
   lines.push(`deslop: ${result.deslop}`);
   lines.push(
     `changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(', ') : 'none reported'}`,
   );
   lines.push(
-    `state: ${result.runDir} (resume with /ralph --resume ${result.runId})`,
+    result.outcome === 'completed'
+      ? `state: ${result.runDir}`
+      : `state: ${result.runDir} (resume with /ralph --resume ${result.runId})`,
   );
-  lines.push('nothing was committed.');
+  lines.push(
+    result.headChanged
+      ? 'WARNING: HEAD moved during the run, a child made commits.'
+      : 'the loop made no commits (HEAD unchanged).',
+  );
   lines.push(`usage: ${formatUsage(result.usage)}`);
   return lines.join('\n');
 };
@@ -406,6 +417,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
             details: { iteration: progress.iteration, role: progress.role },
           }),
       });
+      // pi treats a tool call as failed only when execute throws.
+      if (!isSuccess(result)) throw new Error(summarize(result));
       return {
         content: [{ type: 'text', text: summarize(result) }],
         details: {
@@ -413,7 +426,6 @@ export default function spiralExtension(pi: ExtensionAPI) {
           artifactPath: result.artifactPath,
           iterations: result.iterations.length,
         },
-        isError: !isSuccess(result),
       };
     },
   });
@@ -480,6 +492,16 @@ export default function spiralExtension(pi: ExtensionAPI) {
           noDeslop: parsed.noDeslop,
           reviewerAgent: parsed.reviewerAgent,
           models: parsed.models,
+          onConfirmVerify: (commands) =>
+            ctx.ui.confirm(
+              'Ralph: run PRD-proposed regression commands?',
+              `The PRD planner proposes these commands; they will run in ${ctx.cwd} after every story:\n${commands.map((c) => `  ${c}`).join('\n')}\nSet ralph.verify in spiral.json to skip this question.`,
+            ),
+          onConfirmDrift: (files) =>
+            ctx.ui.confirm(
+              'Ralph: run state was modified outside the loop',
+              `${files.join(', ')} no longer match integrity.json. Resume with the files as they are?`,
+            ),
           signal: controller.signal,
           onProgress: (progress) =>
             ctx.ui.notify(formatRalphProgress(progress), 'info'),
@@ -610,6 +632,10 @@ export default function spiralExtension(pi: ExtensionAPI) {
             details: { iteration: progress.iteration, role: progress.role },
           }),
       });
+      // pi treats a tool call as failed only when execute throws.
+      if (result.outcome !== 'completed') {
+        throw new Error(summarizeRalph(result));
+      }
       return {
         content: [{ type: 'text', text: summarizeRalph(result) }],
         details: {
@@ -618,7 +644,6 @@ export default function spiralExtension(pi: ExtensionAPI) {
           runDir: result.runDir,
           changedFiles: result.changedFiles,
         },
-        isError: result.outcome !== 'completed',
       };
     },
   });

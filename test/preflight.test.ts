@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { DEFAULT_CONFIG, parseModelId, validateConfig } from '../src/config.ts';
 import { applyModelOverrides } from '../src/ralplan/index.ts';
 import { preflightModels, type ModelLookup } from '../src/ralplan/preflight.ts';
+import { registerRoleAgents } from '../src/subagents/register-agents.ts';
+import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
 
 const registry = (known: string[], authed: string[] = known): ModelLookup => ({
   find: (provider, modelId) =>
@@ -17,6 +19,40 @@ test('defaults inherit the session model for every role', () => {
   for (const role of Object.values(DEFAULT_CONFIG.ralplan.roles)) {
     assert.equal(role.model, 'inherit');
   }
+  for (const role of Object.values(DEFAULT_CONFIG.ralph.roles)) {
+    assert.equal(role.model, 'inherit');
+  }
+});
+
+test('registered agents pin model: inherit explicitly', () => {
+  const definitions: { name: string; model: string; tools?: string[] }[] = [];
+  const pi = {
+    events: {
+      emit: (_name: string, request: Record<string, unknown>) => {
+        const definition = request.definition as {
+          model: string;
+          tools?: string[];
+        };
+        definitions.push({
+          name: request.name as string,
+          model: definition.model,
+          tools: definition.tools,
+        });
+        request.result = { ok: true, registration: { dispose() {} } };
+      },
+    },
+  } as unknown as ExtensionAPI;
+  registerRoleAgents(pi).dispose();
+  assert.equal(definitions.length, 5);
+  assert.ok(definitions.every((d) => d.model === 'inherit'));
+  const byName = new Map(definitions.map((d) => [d.name, d]));
+  assert.deepEqual(byName.get('spiral-critic')?.tools, [
+    'read',
+    'grep',
+    'find',
+    'ls',
+  ]);
+  assert.equal(byName.get('spiral-executor')?.tools, undefined);
 });
 
 test('parseModelId', () => {

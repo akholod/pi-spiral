@@ -47,11 +47,12 @@
   },
 
   "ralph": {
-    // Loop turns: each story attempt and each review round is one turn.
+    // Story attempts. Review rounds have their own budget below.
     "maxIterations": 20,
 
-    // Run state: <stateDir>/<runId>/{prd.json, run.json, progress.md}.
-    "stateDir": ".spiral/ralph",
+    // Run state root, OUTSIDE the project ("~/..." or absolute):
+    // <stateDir>/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
+    "stateDir": "~/.pi/agent/spiral/ralph",
 
     // Post-review ai-slop-cleaner pass on the changed files (OMC step 7.5).
     // `/ralph --no-deslop` skips it for one run.
@@ -63,9 +64,10 @@
     // Reviewer rounds before the run ends as `exhausted`.
     "maxReviewAttempts": 3,
 
-    // Regression commands the loop itself runs after every story and after
-    // cleanup. Empty = use the commands the PRD planner discovers in the
-    // repository. Set explicitly to keep full control.
+    // Regression commands the loop itself runs after every story, before
+    // the review and after cleanup. Empty = the PRD planner may propose
+    // commands, which /ralph asks you to confirm (the tool never runs
+    // them). Set explicitly to run without asking.
     "verify": ["npm test", "npm run typecheck"],
     "verifyTimeoutMs": 600000,
 
