@@ -17,6 +17,16 @@ import {
   type RoleName,
 } from '../subagents/register-agents.ts';
 import {
+  addUsage,
+  Cancelled,
+  emptyUsage,
+  ensureNotCancelled,
+  failureDetail,
+  RoleFailure,
+  textOf,
+  type UsageTotals,
+} from '../subagents/responses.ts';
+import {
   buildArchitectTask,
   buildCriticTask,
   buildPlannerInitialTask,
@@ -30,7 +40,6 @@ import {
   type IterationRecord,
   type RalplanRequest,
   type RalplanResult,
-  type UsageTotals,
 } from './types.ts';
 
 export interface LoopProgress {
@@ -55,43 +64,7 @@ export interface RunLoopOptions {
 
 export type LoopResult = Omit<RalplanResult, 'artifactPath'>;
 
-class RoleFailure extends Error {
-  constructor(role: RoleName, detail: string) {
-    super(`${role} ${detail}`);
-    this.name = 'RoleFailure';
-  }
-}
-
-const failureDetail = (response: DelegationResponse): string =>
-  response.status + (response.error ? `: ${response.error}` : '');
-
-// Raised when a child ended because of cancellation (ours or the user's
-// interrupt) so the loop reports `aborted`, not `failed`.
-class Cancelled extends Error {
-  constructor(role: RoleName) {
-    super(`${role} cancelled`);
-    this.name = 'Cancelled';
-  }
-}
-
-const CANCEL_STATUSES = new Set(['cancelled', 'interrupted']);
-
-const ensureNotCancelled = (
-  role: RoleName,
-  response: DelegationResponse,
-): void => {
-  if (CANCEL_STATUSES.has(response.status)) throw new Cancelled(role);
-};
-
-const textOf = (role: RoleName, response: DelegationResponse): string => {
-  ensureNotCancelled(role, response);
-  if (response.status !== 'completed' || response.result?.kind !== 'text') {
-    throw new RoleFailure(role, failureDetail(response));
-  }
-  const text = response.result.text.trim();
-  if (text === '') throw new RoleFailure(role, 'returned an empty response');
-  return text;
-};
+export { emptyUsage };
 
 const BLOCKING = new Set(['CRITICAL', 'MAJOR']);
 
@@ -115,32 +88,6 @@ export const normalizeReview = (review: CriticReview): CriticReview => {
     verdict: 'ITERATE',
     summary: `${review.summary} [verdict downgraded from APPROVE: ${reasons.join('; ')}]`,
   };
-};
-
-export const emptyUsage = (): UsageTotals => ({
-  input: 0,
-  output: 0,
-  cacheRead: 0,
-  cacheWrite: 0,
-  cost: 0,
-  turns: 0,
-  toolCalls: 0,
-  durationMs: 0,
-  runs: 0,
-});
-
-const addUsage = (total: UsageTotals, response: DelegationResponse): void => {
-  const { usage } = response;
-  if (!usage) return;
-  total.input += usage.input;
-  total.output += usage.output;
-  total.cacheRead += usage.cacheRead;
-  total.cacheWrite += usage.cacheWrite;
-  total.cost += usage.cost;
-  total.turns += usage.turns;
-  total.toolCalls += usage.toolCalls;
-  total.durationMs += usage.durationMs;
-  total.runs++;
 };
 
 const reviewOf = (response: DelegationResponse): CriticReview => {

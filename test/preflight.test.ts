@@ -39,7 +39,10 @@ test('malformed model ids are config issues', () => {
 });
 
 test('preflight: all inherit -> no errors, one warning about the critic', () => {
-  const result = preflightModels(DEFAULT_CONFIG.ralplan, registry([]));
+  const result = preflightModels(DEFAULT_CONFIG.ralplan.roles, registry([]), [
+    'planner',
+    'critic',
+  ]);
   assert.deepEqual(result.errors, []);
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /critic runs on the same model/);
@@ -52,8 +55,9 @@ test('preflight: unknown model and missing auth are errors', () => {
     critic: 'x/missing',
   });
   const result = preflightModels(
-    config,
+    config.roles,
     registry(['x/known', 'x/noauth'], ['x/known']),
+    ['planner', 'critic'],
   );
   assert.deepEqual(result.errors, [
     'architect: no credentials configured for "x/noauth"',
@@ -64,6 +68,9 @@ test('preflight: unknown model and missing auth are errors', () => {
 
 test('preflight: distinct critic model gives no warning', () => {
   const config = applyModelOverrides(DEFAULT_CONFIG.ralplan, { critic: 'x/c' });
-  const result = preflightModels(config, registry(['x/c']));
+  const result = preflightModels(config.roles, registry(['x/c']), [
+    'planner',
+    'critic',
+  ]);
   assert.deepEqual(result, { errors: [], warnings: [] });
 });

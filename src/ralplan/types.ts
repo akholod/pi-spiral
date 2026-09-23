@@ -180,18 +180,9 @@ export type CheckpointHandler = (
   plan: string,
 ) => Promise<CheckpointDecision>;
 
-export interface UsageTotals {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
-  cost: number;
-  turns: number;
-  toolCalls: number;
-  durationMs: number;
-  // number of child runs that reported usage
-  runs: number;
-}
+import type { UsageTotals } from '../subagents/responses.ts';
+
+export type { UsageTotals };
 
 export interface IterationRecord {
   iteration: number;

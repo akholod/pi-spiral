@@ -1,9 +1,8 @@
-// Pre-run checks on the resolved role models, done before any child is
+// Pre-run checks on resolved role models, done before any child is
 // launched so a misconfigured provider fails fast instead of after the
-// first expensive planner run.
+// first expensive child run. Shared by ralplan and ralph.
 
-import { INHERIT, parseModelId, type RalplanConfig } from '../config.ts';
-import type { RoleName } from '../subagents/register-agents.ts';
+import { INHERIT, parseModelId, type RoleConfig } from '../config.ts';
 
 // The subset of pi's ModelRegistry that preflight needs (testable without pi).
 export interface ModelLookup {
@@ -18,14 +17,16 @@ export interface PreflightResult {
   warnings: string[];
 }
 
+// `independent` names two roles that should not share a model (author and
+// reviewer); a shared model is a warning, not an error.
 export const preflightModels = (
-  config: RalplanConfig,
+  roles: Record<string, RoleConfig>,
   registry: ModelLookup,
+  independent?: [string, string],
 ): PreflightResult => {
   const errors: string[] = [];
   const warnings: string[] = [];
-  for (const role of Object.keys(config.roles) as RoleName[]) {
-    const { model } = config.roles[role];
+  for (const [role, { model }] of Object.entries(roles)) {
     if (model === INHERIT) continue;
     const parsed = parseModelId(model);
     if (!parsed) {
@@ -39,16 +40,15 @@ export const preflightModels = (
       errors.push(`${role}: no credentials configured for "${model}"`);
     }
   }
-  const { critic, planner } = config.roles;
-  const sameAsPlanner =
-    critic.model === planner.model ||
-    (critic.model === INHERIT && planner.model === INHERIT);
-  if (sameAsPlanner) {
-    warnings.push(
-      'critic runs on the same model as the planner; set ' +
-        'ralplan.roles.critic.model to a different provider for an ' +
-        'independent second opinion',
-    );
+  if (independent) {
+    const [author, reviewer] = independent;
+    if (roles[author]?.model === roles[reviewer]?.model) {
+      warnings.push(
+        `${reviewer} runs on the same model as the ${author}; set ` +
+          `roles.${reviewer}.model to a different provider for an ` +
+          'independent second opinion',
+      );
+    }
   }
   return { errors, warnings };
 };

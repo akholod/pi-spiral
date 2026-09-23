@@ -12,12 +12,19 @@ export const RUNTIME_AGENT_REGISTER_EVENT =
 
 export const AGENT_PREFIX = 'spiral';
 
+// ralplan roles; all three are read-only reviewers/planners.
 export type RoleName = 'planner' | 'architect' | 'critic';
 
-export const ROLE_AGENT_NAMES: Record<RoleName, string> = {
+// Every agent Spiral registers. ralph reuses planner (PRD drafting) and
+// critic/architect (verification) and adds two writers.
+export type AgentName = RoleName | 'executor' | 'cleaner';
+
+export const ROLE_AGENT_NAMES: Record<AgentName, string> = {
   planner: `${AGENT_PREFIX}-planner`,
   architect: `${AGENT_PREFIX}-architect`,
   critic: `${AGENT_PREFIX}-critic`,
+  executor: `${AGENT_PREFIX}-executor`,
+  cleaner: `${AGENT_PREFIX}-cleaner`,
 };
 
 // No `bash`: tool restrictions are the only boundary pi-subagents gives us
@@ -27,10 +34,11 @@ export const READ_ONLY_TOOLS = ['read', 'grep', 'find', 'ls'] as const;
 
 interface RoleDefinition {
   description: string;
-  tools: readonly string[];
+  // omitted = pi's normal builtin tools (read, write, edit, bash, ...)
+  tools?: readonly string[];
 }
 
-const ROLE_DEFINITIONS: Record<RoleName, RoleDefinition> = {
+const ROLE_DEFINITIONS: Record<AgentName, RoleDefinition> = {
   planner: {
     description:
       'Spiral planner: drafts and revises RALPLAN-DR work plans (read-only)',
@@ -45,6 +53,14 @@ const ROLE_DEFINITIONS: Record<RoleName, RoleDefinition> = {
     description:
       'Spiral critic: final quality gate returning APPROVE | ITERATE | REJECT',
     tools: READ_ONLY_TOOLS,
+  },
+  executor: {
+    description:
+      'Spiral executor: implements one ralph user story end to end (writes code, runs checks)',
+  },
+  cleaner: {
+    description:
+      'Spiral cleaner: bounded, regression-safe AI-slop cleanup of the files a ralph run changed',
   },
 };
 
@@ -72,10 +88,10 @@ const agentsDir = join(
   'agents',
 );
 
-export const readRolePrompt = (role: RoleName): string =>
+export const readRolePrompt = (role: AgentName): string =>
   readFileSync(join(agentsDir, `${role}.md`), 'utf8');
 
-const registerOne = (pi: ExtensionAPI, role: RoleName): Disposable => {
+const registerOne = (pi: ExtensionAPI, role: AgentName): Disposable => {
   const definition = ROLE_DEFINITIONS[role];
   const request: RegisterRequest = {
     version: 1,
@@ -97,7 +113,7 @@ const registerOne = (pi: ExtensionAPI, role: RoleName): Disposable => {
 export const registerRoleAgents = (pi: ExtensionAPI): Disposable => {
   const registrations: Disposable[] = [];
   try {
-    for (const role of Object.keys(ROLE_DEFINITIONS) as RoleName[]) {
+    for (const role of Object.keys(ROLE_DEFINITIONS) as AgentName[]) {
       registrations.push(registerOne(pi, role));
     }
   } catch (error) {
