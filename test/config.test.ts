@@ -82,10 +82,15 @@ const tempProject = (): string => {
   return cwd;
 };
 
+// empty home so the developer's real ~/.pi/agent/spiral.json is not read
+const home = mkdtempSync(join(tmpdir(), 'spiral-home-'));
+const load = (cwd: string, extra: { projectTrusted?: boolean } = {}) =>
+  loadConfig(cwd, { homeDir: home, ...extra });
+
 test('loadConfig falls back to defaults on invalid project config', () => {
   const cwd = tempProject();
   writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"ralplan": null}');
-  const loaded = loadConfig(cwd);
+  const loaded = load(cwd);
   assert.equal(loaded.fallback, true);
   assert.deepEqual(loaded.config, DEFAULT_CONFIG);
   assert.ok(loaded.issues.some((issue) => issue.path === 'ralplan'));
@@ -94,14 +99,10 @@ test('loadConfig falls back to defaults on invalid project config', () => {
 test('loadConfig reports unknown keys and parse errors', () => {
   const cwd = tempProject();
   writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"ralplam": {}}');
-  assert.ok(
-    loadConfig(cwd).issues.some((issue) => issue.message === 'unknown key'),
-  );
+  assert.ok(load(cwd).issues.some((issue) => issue.message === 'unknown key'));
   writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"ralplan": ');
   assert.ok(
-    loadConfig(cwd).issues.some((issue) =>
-      issue.message.startsWith('cannot parse'),
-    ),
+    load(cwd).issues.some((issue) => issue.message.startsWith('cannot parse')),
   );
 });
 
@@ -111,8 +112,8 @@ test('loadConfig ignores project config when the project is untrusted', () => {
     join(cwd, '.pi', 'spiral.json'),
     '{"ralplan": {"maxIterations": 2}}',
   );
-  const trusted = loadConfig(cwd, { projectTrusted: true });
-  const untrusted = loadConfig(cwd, { projectTrusted: false });
+  const trusted = load(cwd, { projectTrusted: true });
+  const untrusted = load(cwd, { projectTrusted: false });
   assert.equal(trusted.config.ralplan.maxIterations, 2);
   assert.equal(untrusted.config.ralplan.maxIterations, 5);
   assert.deepEqual(untrusted.sources, []);

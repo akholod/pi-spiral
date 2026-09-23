@@ -24,12 +24,27 @@ export interface RalplanConfig {
   };
 }
 
+// Which registered agent verifies the finished PRD (OMC `--critic=`).
+export type ReviewerAgent = 'critic' | 'architect';
+
 export interface RalphConfig {
+  // loop iterations: story attempts + review rounds
   maxIterations: number;
   stateDir: string;
+  // post-approval ai-slop-cleaner pass on changed files (OMC step 7.5)
+  deslop: boolean;
+  reviewerAgent: ReviewerAgent;
+  // reviewer rounds before giving up (OMC max_verification_attempts)
+  maxReviewAttempts: number;
+  // regression commands the loop runs itself; empty = use the PRD's list
+  verify: string[];
+  verifyTimeoutMs: number;
   roles: {
+    // drafts prd.json (planner agent, read-only)
+    prd: RoleConfig;
     executor: RoleConfig;
     reviewer: RoleConfig;
+    cleaner: RoleConfig;
   };
 }
 
@@ -46,6 +61,8 @@ export const INHERIT = 'inherit';
 // Hard limits. RALPLAN_MAX_ITERATIONS mirrors the OMC reference (5 rounds).
 // MAX_TIMEOUT_MS is the pi-subagents delegation API cap.
 export const RALPLAN_MAX_ITERATIONS = 5;
+export const RALPH_MAX_ITERATIONS = 100;
+export const RALPH_MAX_REVIEW_ATTEMPTS = 10;
 export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export const DEFAULT_CONFIG: SpiralConfig = {
@@ -62,17 +79,26 @@ export const DEFAULT_CONFIG: SpiralConfig = {
   ralph: {
     maxIterations: 20,
     stateDir: '.spiral/ralph',
+    deslop: true,
+    reviewerAgent: 'critic',
+    maxReviewAttempts: 3,
+    verify: [],
+    verifyTimeoutMs: 600_000,
     roles: {
+      prd: { model: INHERIT, thinking: 'high', timeoutMs: 900_000 },
       executor: { model: INHERIT, thinking: 'medium', timeoutMs: 1_800_000 },
-      reviewer: { model: INHERIT, thinking: 'high', timeoutMs: 600_000 },
+      reviewer: { model: INHERIT, thinking: 'high', timeoutMs: 900_000 },
+      cleaner: { model: INHERIT, thinking: 'medium', timeoutMs: 1_200_000 },
     },
   },
 };
 
 export const CONFIG_FILE_NAME = 'spiral.json';
 
-export const getUserConfigPath = (configDirName: string): string =>
-  join(homedir(), configDirName, 'agent', CONFIG_FILE_NAME);
+export const getUserConfigPath = (
+  configDirName: string,
+  homeDir = homedir(),
+): string => join(homeDir, configDirName, 'agent', CONFIG_FILE_NAME);
 
 export const getProjectConfigPath = (
   cwd: string,
@@ -266,10 +292,57 @@ export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
   validateRole('ralplan.roles.critic', ralplan.roles.critic, issues);
   if (!Number.isInteger(ralph.maxIterations) || ralph.maxIterations < 1) {
     issues.push({ path: 'ralph.maxIterations', message: 'must be >= 1' });
+  } else if (ralph.maxIterations > RALPH_MAX_ITERATIONS) {
+    issues.push({
+      path: 'ralph.maxIterations',
+      message: `must be <= ${RALPH_MAX_ITERATIONS}`,
+    });
   }
   validateDir('ralph.stateDir', ralph.stateDir, issues);
+  if (typeof ralph.deslop !== 'boolean') {
+    issues.push({ path: 'ralph.deslop', message: 'must be a boolean' });
+  }
+  if (!['critic', 'architect'].includes(ralph.reviewerAgent)) {
+    issues.push({
+      path: 'ralph.reviewerAgent',
+      message: 'must be critic | architect',
+    });
+  }
+  const { maxReviewAttempts } = ralph;
+  if (
+    !Number.isInteger(maxReviewAttempts) ||
+    maxReviewAttempts < 1 ||
+    maxReviewAttempts > RALPH_MAX_REVIEW_ATTEMPTS
+  ) {
+    issues.push({
+      path: 'ralph.maxReviewAttempts',
+      message: `must be an int in 1..${RALPH_MAX_REVIEW_ATTEMPTS}`,
+    });
+  }
+  if (
+    !Array.isArray(ralph.verify) ||
+    !ralph.verify.every((cmd) => typeof cmd === 'string' && cmd.trim() !== '')
+  ) {
+    issues.push({
+      path: 'ralph.verify',
+      message: 'must be an array of non-empty command strings',
+    });
+  }
+  const { verifyTimeoutMs } = ralph;
+  if (
+    !Number.isInteger(verifyTimeoutMs) ||
+    verifyTimeoutMs <= 0 ||
+    verifyTimeoutMs > MAX_TIMEOUT_MS
+  ) {
+    issues.push({
+      path: 'ralph.verifyTimeoutMs',
+      message: `must be a positive int <= ${MAX_TIMEOUT_MS}`,
+    });
+  }
+  validateRole('ralph.roles.prd', ralph.roles.prd, issues);
   validateRole('ralph.roles.executor', ralph.roles.executor, issues);
   validateRole('ralph.roles.reviewer', ralph.roles.reviewer, issues);
+  validateRole('ralph.roles.cleaner', ralph.roles.cleaner, issues);
   return issues;
 };
 
@@ -286,6 +359,8 @@ export interface LoadOptions {
   configDirName?: string;
   // untrusted projects never contribute config (ctx.isProjectTrusted())
   projectTrusted?: boolean;
+  // home directory override so tests do not read the real user config
+  homeDir?: string;
 }
 
 const readConfigFile = (path: string, issues: ConfigIssue[]): unknown => {
@@ -309,7 +384,7 @@ export const loadConfig = (
   const configDirName = options.configDirName ?? '.pi';
   const sources: string[] = [];
   const issues: ConfigIssue[] = [];
-  const paths = [getUserConfigPath(configDirName)];
+  const paths = [getUserConfigPath(configDirName, options.homeDir)];
   if (options.projectTrusted !== false) {
     paths.push(getProjectConfigPath(cwd, configDirName));
   }

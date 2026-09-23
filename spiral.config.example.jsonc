@@ -47,12 +47,37 @@
   },
 
   "ralph": {
-    // Phase 2. Kept here so the config shape is stable from day one.
+    // Loop turns: each story attempt and each review round is one turn.
     "maxIterations": 20,
+
+    // Run state: <stateDir>/<runId>/{prd.json, run.json, progress.md}.
     "stateDir": ".spiral/ralph",
+
+    // Post-review ai-slop-cleaner pass on the changed files (OMC step 7.5).
+    // `/ralph --no-deslop` skips it for one run.
+    "deslop": true,
+
+    // Which read-only agent verifies the finished PRD: critic | architect.
+    "reviewerAgent": "critic",
+
+    // Reviewer rounds before the run ends as `exhausted`.
+    "maxReviewAttempts": 3,
+
+    // Regression commands the loop itself runs after every story and after
+    // cleanup. Empty = use the commands the PRD planner discovers in the
+    // repository. Set explicitly to keep full control.
+    "verify": ["npm test", "npm run typecheck"],
+    "verifyTimeoutMs": 600000,
+
+    // prd: drafts prd.json (planner agent, read-only).
+    // executor / cleaner: writers with pi's normal tools including a shell.
+    // reviewer: read-only critic or architect; a different provider than
+    // the executor gives an independent second opinion.
     "roles": {
-      "executor": { "model": "inherit", "thinking": "medium" },
-      "reviewer": { "model": "claude-bridge/claude-opus-5", "thinking": "high" }
+      "prd": { "model": "claude-bridge/claude-opus-5", "thinking": "high" },
+      "executor": { "model": "claude-bridge/claude-opus-5", "thinking": "medium" },
+      "reviewer": { "model": "openai-codex/gpt-6-sol", "thinking": "high" },
+      "cleaner": { "model": "claude-bridge/claude-opus-5", "thinking": "medium" }
     }
   }
 }

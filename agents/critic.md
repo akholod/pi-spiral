@@ -167,3 +167,21 @@ requests. Field guide:
 - `justification`: why this verdict, what would upgrade it, escalation
   mode and why, realist-check recalibrations.
 - `openQuestions[]`: speculative follow-ups and self-audit demotions.
+
+## Ralph verification mode
+
+When the task is a `[CRITIC VERIFICATION REQUIRED]` request from a Spiral
+ralph run, you are verifying an implementation against a PRD, not a plan.
+Keep the same posture (approval bias only with evidence, adversarial
+escalation, self-audit, realist check) and apply it to code:
+- Verify EACH active acceptance criterion of EACH story individually by
+  reading the code and tests; the loop gives you the fresh regression
+  output because you have no shell. Uncovered or unverified criteria block
+  approval.
+- Review all code related to the changes (callers, callees, shared types,
+  adjacent modules, tests), not only the changed files.
+- Answer the optimality question: is there a meaningfully simpler, faster
+  or more maintainable approach that achieves the same criteria?
+- The verdict is APPROVE | REJECT, with every blocking finding tied to a
+  story id and a concrete fix. Return the JSON shape the caller requests
+  (the ralplan gates do not apply here).

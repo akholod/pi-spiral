@@ -3,8 +3,7 @@
 // Entry point. Responsibilities:
 //   - load and validate spiral.json (user + project), fail-closed
 //   - register role agents with pi-subagents (runtime registration)
-//   - expose `/ralplan` (slash command) and `ralplan` (LLM tool)
-//   - `/ralph` placeholder until phase 2
+//   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
 import { Type } from 'typebox';
 import {
@@ -31,7 +30,14 @@ import type {
   CheckpointHandler,
   RalplanResult,
 } from '../src/ralplan/types.ts';
-import { describeRalph } from '../src/ralph/index.ts';
+import {
+  applyRalphModelOverrides,
+  parseRalphArgs,
+  runRalph,
+} from '../src/ralph/index.ts';
+import type { RalphProgress } from '../src/ralph/loop.ts';
+import { formatPrdStatus, prdStatus } from '../src/ralph/prd.ts';
+import type { RalphResult } from '../src/ralph/types.ts';
 
 const formatProgress = (progress: LoopProgress): string =>
   `[ralplan] iteration ${progress.iteration}: ${progress.role} ${progress.phase}` +
@@ -79,6 +85,55 @@ const summarize = (result: RalplanResult): string => {
 
 const USAGE =
   'Usage: /ralplan [--deliberate] [--interactive] [--planner m] [--architect m] [--critic m] <task>';
+
+const RALPH_USAGE =
+  'Usage: /ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan <artifact>] [--resume [runId]] [--prd m] [--executor m] [--reviewer m] [--cleaner m] <task>';
+
+const formatRalphProgress = (progress: RalphProgress): string =>
+  `[ralph] iteration ${progress.iteration}: ${progress.role} ${progress.phase}` +
+  (progress.detail ? ` (${progress.detail})` : '');
+
+const summarizeRalph = (result: RalphResult): string => {
+  const status = prdStatus(result.prd);
+  const lines: string[] = [];
+  switch (result.outcome) {
+    case 'completed':
+      lines.push(
+        `ralph COMPLETED after ${result.iterations} iteration(s): all ${status.total} stories pass and the ${result.reviews.length > 0 ? 'reviewer' : 'loop'} verified them.`,
+      );
+      break;
+    case 'exhausted':
+      lines.push(
+        `ralph NOT complete: budget exhausted after ${result.iterations} iteration(s).`,
+      );
+      break;
+    case 'blocked':
+      lines.push(
+        `ralph BLOCKED after ${result.iterations} iteration(s); user input needed.`,
+      );
+      break;
+    case 'aborted':
+      lines.push(`ralph cancelled after ${result.iterations} iteration(s).`);
+      break;
+    case 'failed':
+      lines.push(
+        `ralph FAILED after ${result.iterations} iteration(s): ${result.error}`,
+      );
+      break;
+  }
+  if (result.note) lines.push(`note: ${result.note}`);
+  lines.push(formatPrdStatus(status));
+  lines.push(`deslop: ${result.deslop}`);
+  lines.push(
+    `changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(', ') : 'none reported'}`,
+  );
+  lines.push(
+    `state: ${result.runDir} (resume with /ralph --resume ${result.runId})`,
+  );
+  lines.push('nothing was committed.');
+  lines.push(`usage: ${formatUsage(result.usage)}`);
+  return lines.join('\n');
+};
 
 const DRAFT_OPTIONS = ['Proceed to review', 'Request changes', 'Skip review'];
 const FINAL_OPTIONS = ['Approve', 'Request changes', 'Reject'];
@@ -129,9 +184,14 @@ export default function spiralExtension(pi: ExtensionAPI) {
   // Returns the error list; empty means go.
   const preflight = (
     ctx: ExtensionContext,
-    config: Parameters<typeof preflightModels>[0],
+    roles: Parameters<typeof preflightModels>[0],
+    independent: [string, string],
   ): string[] => {
-    const { errors, warnings } = preflightModels(config, ctx.modelRegistry);
+    const { errors, warnings } = preflightModels(
+      roles,
+      ctx.modelRegistry,
+      independent,
+    );
     for (const warning of warnings) {
       if (warned.has(warning)) continue;
       warned.add(warning);
@@ -219,7 +279,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
-        applyModelOverrides(cfg.config.ralplan, parsed.models),
+        applyModelOverrides(cfg.config.ralplan, parsed.models).roles,
+        ['planner', 'critic'],
       );
       if (errors.length > 0) {
         for (const error of errors)
@@ -316,7 +377,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
-        applyModelOverrides(loaded.config.ralplan, params.models),
+        applyModelOverrides(loaded.config.ralplan, params.models).roles,
+        ['planner', 'critic'],
       );
       if (errors.length > 0) {
         return {
@@ -368,11 +430,196 @@ export default function spiralExtension(pi: ExtensionAPI) {
     },
   });
 
+  const ralphRunning = new Set<AbortController>();
+
   pi.registerCommand('ralph', {
-    description: 'PRD-driven execution loop (phase 2, not implemented yet)',
+    description:
+      'PRD-driven persistence loop: draft stories, implement + verify each, independent review, deslop pass',
+    handler: async (args, ctx) => {
+      const parsed = parseRalphArgs(args);
+      if (parsed.errors.length > 0) {
+        for (const error of parsed.errors) ctx.ui.notify(error, 'error');
+        ctx.ui.notify(RALPH_USAGE, 'error');
+        return;
+      }
+      const cfg = await configFor(ctx, true);
+      if (!cfg) {
+        ctx.ui.notify('[ralph] not started: fix spiral.json first', 'error');
+        return;
+      }
+      const errors = preflight(
+        ctx,
+        applyRalphModelOverrides(cfg.config.ralph, parsed.models).roles,
+        ['executor', 'reviewer'],
+      );
+      if (errors.length > 0) {
+        for (const error of errors) ctx.ui.notify(`[ralph] ${error}`, 'error');
+        ctx.ui.notify('[ralph] not started: fix role models first', 'error');
+        return;
+      }
+      ctx.ui.notify(
+        parsed.resume
+          ? `[ralph] resuming ${parsed.resume} (stop with /ralph-cancel)`
+          : `[ralph] starting: ${parsed.task} (stop with /ralph-cancel)`,
+        'info',
+      );
+      const controller = new AbortController();
+      ctx.signal?.addEventListener('abort', () => controller.abort(), {
+        once: true,
+      });
+      ralphRunning.add(controller);
+      let result: RalphResult;
+      try {
+        result = await runRalph({
+          pi,
+          config: cfg.config.ralph,
+          cwd: ctx.cwd,
+          task: parsed.task,
+          plan: parsed.plan,
+          resume: parsed.resume,
+          noDeslop: parsed.noDeslop,
+          reviewerAgent: parsed.reviewerAgent,
+          models: parsed.models,
+          signal: controller.signal,
+          onProgress: (progress) =>
+            ctx.ui.notify(formatRalphProgress(progress), 'info'),
+        });
+      } finally {
+        ralphRunning.delete(controller);
+      }
+      const summary = summarizeRalph(result);
+      ctx.ui.notify(summary, result.outcome === 'completed' ? 'info' : 'error');
+      pi.sendMessage(
+        {
+          customType: 'spiral-ralph',
+          content: summary,
+          display: true,
+          details: {
+            outcome: result.outcome,
+            runId: result.runId,
+            runDir: result.runDir,
+            changedFiles: result.changedFiles,
+          },
+        },
+        { triggerTurn: false },
+      );
+    },
+  });
+
+  pi.registerCommand('ralph-cancel', {
+    description: 'Cancel running /ralph loops',
     handler: async (_args, ctx) => {
-      const cfg = load(ctx);
-      ctx.ui.notify(describeRalph(cfg.config.ralph), 'info');
+      if (ralphRunning.size === 0) {
+        ctx.ui.notify('[ralph] nothing is running', 'info');
+        return;
+      }
+      for (const controller of ralphRunning) controller.abort();
+      ctx.ui.notify(
+        `[ralph] cancelling ${ralphRunning.size} run(s)`,
+        'warning',
+      );
+    },
+  });
+
+  pi.registerTool({
+    name: 'ralph',
+    label: 'Ralph',
+    description:
+      'Run the ralph persistence loop: draft a PRD of user stories with testable acceptance criteria (optionally from a ralplan artifact), implement and verify each story with an executor child, get an independent reviewer verdict, then a bounded deslop pass and regression re-run. Writes code in the working tree, never commits. State in .spiral/ralph/<runId>/.',
+    promptSnippet:
+      'PRD-driven implementation loop with executor, reviewer and deslop pass',
+    promptGuidelines: [
+      'Use the ralph tool when the user asks to implement an approved plan end to end, says "ralph", or wants guaranteed completion with verification.',
+      'Prefer passing the ralplan artifact path as `plan` when one exists.',
+      'After the ralph tool returns, report the outcome and the changed files; do not commit unless the user asks.',
+    ],
+    parameters: Type.Object({
+      task: Type.String({ description: 'Task description to implement' }),
+      plan: Type.Optional(
+        Type.String({
+          description: 'Path to a ralplan artifact to derive stories from',
+        }),
+      ),
+      noDeslop: Type.Optional(
+        Type.Boolean({ description: 'Skip the post-review cleanup pass' }),
+      ),
+      reviewerAgent: Type.Optional(
+        Type.Union([Type.Literal('critic'), Type.Literal('architect')], {
+          description: 'Which agent verifies completion',
+        }),
+      ),
+      models: Type.Optional(
+        Type.Object(
+          {
+            prd: Type.Optional(Type.String()),
+            executor: Type.Optional(Type.String()),
+            reviewer: Type.Optional(Type.String()),
+            cleaner: Type.Optional(Type.String()),
+          },
+          { description: 'Per-role model overrides as provider/model ids' },
+        ),
+      ),
+    }),
+    async execute(_toolCallId, params, signal, onUpdate, ctx) {
+      loaded = load(ctx);
+      if (loaded.fallback) {
+        const issues = loaded.issues
+          .map((issue) => `${issue.path}: ${issue.message}`)
+          .join('; ');
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `ralph not started, spiral.json is invalid: ${issues}`,
+            },
+          ],
+          details: { outcome: 'not_started' },
+          isError: true,
+        };
+      }
+      const errors = preflight(
+        ctx,
+        applyRalphModelOverrides(loaded.config.ralph, params.models).roles,
+        ['executor', 'reviewer'],
+      );
+      if (errors.length > 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `ralph not started, role models unavailable: ${errors.join('; ')}`,
+            },
+          ],
+          details: { outcome: 'not_started' },
+          isError: true,
+        };
+      }
+      const result = await runRalph({
+        pi,
+        config: loaded.config.ralph,
+        cwd: ctx.cwd,
+        task: params.task,
+        plan: params.plan,
+        noDeslop: params.noDeslop === true,
+        reviewerAgent: params.reviewerAgent,
+        models: params.models,
+        signal,
+        onProgress: (progress) =>
+          onUpdate?.({
+            content: [{ type: 'text', text: formatRalphProgress(progress) }],
+            details: { iteration: progress.iteration, role: progress.role },
+          }),
+      });
+      return {
+        content: [{ type: 'text', text: summarizeRalph(result) }],
+        details: {
+          outcome: result.outcome,
+          runId: result.runId,
+          runDir: result.runDir,
+          changedFiles: result.changedFiles,
+        },
+        isError: result.outcome !== 'completed',
+      };
     },
   });
 

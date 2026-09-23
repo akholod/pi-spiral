@@ -114,12 +114,43 @@ version is written and the status says so.
 8. **Per-run role models.** `--planner|--architect|--critic <model>` on the
    command, `models` on the tool.
 
-## Phase 2: ralph (outline)
+## ralph
 
-Input: an approved artifact. Derive `prd.json` (stories with acceptance
-criteria) with the planner model; loop executor child → verify → mark story;
-reviewer child at the end; state in `.spiral/ralph/`. The executor is the
-only writing role and runs with the `worker`-like tool set.
+Design in ADR 0003. Runtime flow:
+
+```
+/ralph [--plan artifact] <task>   or   tool ralph({task, plan})
+   │
+   ▼
+delegate(spiral-planner, roles.prd) -> PrdDraft (structured)   [retry once if generic]
+   │   .spiral/ralph/<runId>/{prd.json, run.json, progress.md}
+   ▼
+while iterations < maxIterations
+   ├─ next story with passes=false ?
+   │    ├─ delegate(spiral-executor, roles.executor) -> ExecutorReport
+   │    ├─ apply amendments (ledger), collect changed files (report + git delta)
+   │    ├─ run verify commands (config.verify or prd.verify)
+   │    └─ every criterion met + green ? passes=true : notes, retry (3 -> blocked)
+   └─ all pass ?
+        ├─ reviewRounds < maxReviewAttempts else exhausted
+        ├─ run verify; delegate(spiral-critic|architect, roles.reviewer) -> ReviewReport
+        ├─ normalize: APPROVE needs every criterion VERIFIED, no CRITICAL/MAJOR
+        ├─ REJECT -> re-open named stories / add RV-nnn story, continue
+        └─ APPROVE -> deslop? delegate(spiral-cleaner) on changed files
+                     -> verify again (2 executor repair attempts) -> completed
+```
+
+The loop owns every state file; children are told never to read or edit
+it. Nothing is committed. `--resume [runId]` reloads `prd.json` and
+`run.json` and continues. `src/ralph/prd.ts` holds the PRD model with the
+evidence-preserving amendment ledger (OMC ADR 03664), `state.ts` the run
+files and progress rendering, `verify.ts` the shell runner and git delta,
+`prompts.ts` the role tasks, `loop.ts` the invariants.
+
+Deviations from OMC, on purpose: no story-level architect gate (one
+completion review over all stories, as the skill's step 7 describes); the
+review budget ends in `exhausted` instead of OMC's force-accept; no
+stale-PRD reconciliation, `/goal` policies or company context.
 
 ## Phase 3 ideas
 
