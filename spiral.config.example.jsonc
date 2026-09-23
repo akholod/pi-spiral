@@ -1,0 +1,51 @@
+// Spiral configuration.
+// Locations (project overrides user, key by key):
+//   user:    ~/.pi/agent/spiral.json
+//   project: .pi/spiral.json
+// Copy this file to one of those locations and remove the comments if your
+// editor complains; the loader accepts JSONC (comments and trailing commas).
+{
+  "ralplan": {
+    // Hard cap on planner -> architect -> critic rounds.
+    "maxIterations": 5, // hard cap 5 (OMC reference); higher values invalidate the file
+
+    // Where plan artifacts are written, relative to the project cwd.
+    "plansDir": ".spiral/plans",
+
+    // "auto" enables deliberate mode (pre-mortem + expanded test plan) when the
+    // task text signals high risk (auth, migration, destructive, prod, PII).
+    // "always" / "never" force it.
+    "deliberate": "auto",
+
+    // Per-role model settings. `model` is a fully qualified pi model id
+    // (provider/model). `thinking` is one of
+    // off | minimal | low | medium | high | xhigh | max.
+    "roles": {
+      "planner": {
+        "model": "claude-bridge/claude-opus-5",
+        "thinking": "high",
+        "timeoutMs": 900000
+      },
+      "architect": {
+        "model": "claude-bridge/claude-opus-5",
+        "thinking": "high",
+        "timeoutMs": 600000
+      },
+      "critic": {
+        "model": "openai-codex/gpt-5.6-sol",
+        "thinking": "high",
+        "timeoutMs": 600000
+      }
+    }
+  },
+
+  "ralph": {
+    // Phase 2. Kept here so the config shape is stable from day one.
+    "maxIterations": 20,
+    "stateDir": ".spiral/ralph",
+    "roles": {
+      "executor": { "model": "inherit", "thinking": "medium" },
+      "reviewer": { "model": "claude-bridge/claude-opus-5", "thinking": "high" }
+    }
+  }
+}
