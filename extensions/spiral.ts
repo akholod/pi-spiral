@@ -260,6 +260,9 @@ export default function spiralExtension(pi: ExtensionAPI) {
     reportIssues(ctx, loaded);
     agents?.dispose();
     agents = null;
+    // pi-subagents disables itself inside its own child processes, so there
+    // is no owner to register with; ralph/ralplan run from the parent only.
+    if (process.env.PI_SUBAGENT_CHILD === '1') return;
     try {
       agents = registerRoleAgents(pi);
     } catch (error) {
