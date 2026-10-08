@@ -1,14 +1,30 @@
 {
   "name": "pi-spiral",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Pi extension: ralplan (consensus planning: planner + architect + critic) and ralph (persistent execution loop), ported from oh-my-claudecode",
   "type": "module",
   "license": "MIT",
-  "keywords": ["pi-package", "pi", "pi-coding-agent", "ralplan", "ralph", "planning"],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "pi-coding-agent",
+    "ralplan",
+    "ralph",
+    "planning"
+  ],
   "pi": {
-    "extensions": ["./extensions"]
+    "extensions": [
+      "./extensions"
+    ]
   },
-  "files": ["extensions", "src", "agents", "docs", "spiral.config.example.jsonc", "README.md"],
+  "files": [
+    "extensions",
+    "src",
+    "agents",
+    "docs",
+    "spiral.config.example.jsonc",
+    "README.md"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --experimental-strip-types --test test/*.test.ts",
