@@ -188,14 +188,19 @@ const resolveVerifyCommands = async (
   if (prd.verify.length === 0) {
     return {
       commands: [],
-      note: 'no regression commands: none in ralph.verify and none proposed by the PRD',
+      note:
+        'no regression commands: none in ralph.verify and none proposed by ' +
+        'the PRD',
     };
   }
   const confirmed = (await options.onConfirmVerify?.(prd.verify)) === true;
   if (confirmed) return { commands: prd.verify };
   return {
     commands: [],
-    note: `PRD proposed regression commands that were not confirmed and did not run: ${prd.verify.join(' && ')}. Set ralph.verify to run commands without asking.`,
+    note:
+      'PRD proposed regression commands that were not confirmed and did not ' +
+      `run: ${prd.verify.join(' && ')}. Set ralph.verify to run commands ` +
+      'without asking.',
   };
 };
 
@@ -203,38 +208,6 @@ const withNote = (result: RalphResult, note?: string): RalphResult =>
   note
     ? { ...result, note: [result.note, note].filter(Boolean).join('; ') }
     : result;
-
-export const runRalph = async (options: RalphOptions): Promise<RalphResult> => {
-  const config = applyRalphModelOverrides(options.config, options.models);
-  const reviewerAgent = options.reviewerAgent ?? config.reviewerAgent;
-  const deslop = options.noDeslop ? false : config.deslop;
-  const stateRoot = resolveStateRoot(config.stateDir, options.homeDir);
-  const projectDir = projectDirFor(stateRoot, options.cwd);
-
-  const base = (runId: string, resumed: boolean): RalphRequest => ({
-    runId,
-    task: options.task,
-    cwd: options.cwd,
-    deslop,
-    reviewerAgent,
-    resumed,
-  });
-
-  let lock: ReturnType<typeof acquireProjectLock>;
-  try {
-    lock = acquireProjectLock(projectDir);
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return failed(base('none', false) as RalphRequest, projectDir, message);
-  }
-  try {
-    return options.resume
-      ? await resumeRun(options, config, base)
-      : await startRun(options, config, base);
-  } finally {
-    lock.release();
-  }
-};
 
 const resumeRun = async (
   options: RalphOptions,
@@ -267,7 +240,8 @@ const resumeRun = async (
       return failed(
         request,
         runDir,
-        `run ${runId} was modified outside the loop (${drift.join(', ')}); not resumed`,
+        `run ${runId} was modified outside the loop (${drift.join(', ')}); ` +
+          'not resumed',
       );
     }
     store.trustCurrent();
@@ -385,6 +359,38 @@ const startRun = async (
   return withNote(result, verify.note);
 };
 
+export const runRalph = async (options: RalphOptions): Promise<RalphResult> => {
+  const config = applyRalphModelOverrides(options.config, options.models);
+  const reviewerAgent = options.reviewerAgent ?? config.reviewerAgent;
+  const deslop = options.noDeslop ? false : config.deslop;
+  const stateRoot = resolveStateRoot(config.stateDir, options.homeDir);
+  const projectDir = projectDirFor(stateRoot, options.cwd);
+
+  const base = (runId: string, resumed: boolean): RalphRequest => ({
+    runId,
+    task: options.task,
+    cwd: options.cwd,
+    deslop,
+    reviewerAgent,
+    resumed,
+  });
+
+  let lock: ReturnType<typeof acquireProjectLock>;
+  try {
+    lock = acquireProjectLock(projectDir);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return failed(base('none', false) as RalphRequest, projectDir, message);
+  }
+  try {
+    return options.resume
+      ? await resumeRun(options, config, base)
+      : await startRun(options, config, base);
+  } finally {
+    lock.release();
+  }
+};
+
 // ---------------------------------------------------------------------------
 // `/ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan <path>]
 // [--resume [runId]] [--prd m] [--executor m] [--reviewer m] [--cleaner m]
@@ -419,17 +425,18 @@ export const parseRalphArgs = (raw: string): ParsedRalphArgs => {
   };
   const rest: string[] = [];
   const valueOf = (i: number, flag: string): string | undefined => {
-    const value = words[i + 1];
+    let value: string | undefined = words[i + 1];
     if (!value || value.startsWith('--')) {
       parsed.errors.push(`${flag} requires a value`);
-      return undefined;
+      value = undefined;
     }
     return value;
   };
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
-    if (word === '--no-deslop') parsed.noDeslop = true;
-    else if (word === '--resume') {
+    if (word === '--no-deslop') {
+      parsed.noDeslop = true;
+    } else if (word === '--resume') {
       const next = words[i + 1];
       if (next && !next.startsWith('--')) {
         parsed.resume = next;
@@ -437,7 +444,9 @@ export const parseRalphArgs = (raw: string): ParsedRalphArgs => {
         if (!isRunId(next)) {
           parsed.errors.push('--resume takes a run id (UUID) or nothing');
         }
-      } else parsed.resume = 'latest';
+      } else {
+        parsed.resume = 'latest';
+      }
     } else if (word === '--plan') {
       const value = valueOf(i, word);
       if (value) {
@@ -460,7 +469,9 @@ export const parseRalphArgs = (raw: string): ParsedRalphArgs => {
         parsed.models[ROLE_FLAGS[word]] = value;
         i++;
       }
-    } else rest.push(word);
+    } else {
+      rest.push(word);
+    }
   }
   parsed.task = rest.join(' ');
   if (parsed.task === '' && !parsed.resume) {

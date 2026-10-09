@@ -47,13 +47,24 @@ const noteLine = (result: RalplanResult): string => {
       `critic did not approve after ${rounds} iteration(s); latest version`
     );
   }
-  if (result.outcome === 'aborted')
+  if (result.outcome === 'aborted') {
     return 'cancelled; latest draft, not reviewed';
+  }
   if (result.outcome === 'failed') {
-    return `loop failed after ${rounds} completed iteration(s): ${result.error ?? 'unknown'}; latest draft may be unreviewed`;
+    return (
+      `loop failed after ${rounds} completed iteration(s): ` +
+      `${result.error ?? 'unknown'}; latest draft may be unreviewed`
+    );
   }
   return 'reviewed by architect and critic; awaiting user approval';
 };
+
+export const formatUsage = (usage: UsageTotals): string =>
+  `${usage.runs} child run(s), ${usage.turns} turns, ${usage.toolCalls} ` +
+  'tool calls, ' +
+  `${usage.input} in / ${usage.output} out tokens (cache ` +
+  `${usage.cacheRead} read), ` +
+  `$${usage.cost.toFixed(4)}, ${Math.round(usage.durationMs / 1000)}s`;
 
 export const renderArtifact = (
   request: RalplanRequest,
@@ -63,7 +74,8 @@ export const renderArtifact = (
     [
       `### Iteration ${record.iteration}`,
       '',
-      `Critic verdict: **${record.criticReview.verdict}** — ${record.criticReview.summary}`,
+      `Critic verdict: **${record.criticReview.verdict}** — ` +
+        `${record.criticReview.summary}`,
       '',
       '<details><summary>Architect review</summary>',
       '',
@@ -109,11 +121,6 @@ export const renderArtifact = (
     formatUsage(result.usage),
   ].join('\n');
 };
-
-export const formatUsage = (usage: UsageTotals): string =>
-  `${usage.runs} child run(s), ${usage.turns} turns, ${usage.toolCalls} tool calls, ` +
-  `${usage.input} in / ${usage.output} out tokens (cache ${usage.cacheRead} read), ` +
-  `$${usage.cost.toFixed(4)}, ${Math.round(usage.durationMs / 1000)}s`;
 
 // Exclusive create: never overwrite an existing plan.
 export const writeArtifact = (path: string, content: string): void => {

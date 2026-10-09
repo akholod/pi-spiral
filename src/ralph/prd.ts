@@ -348,8 +348,12 @@ const normalizeStory = (raw: unknown): Story | null => {
   // invariants: an amended original is no longer active, amended only once
   const originals = new Set<string>();
   for (const a of ledger) {
-    if (originals.has(a.original) || s.acceptanceCriteria.includes(a.original))
+    if (
+      originals.has(a.original) ||
+      s.acceptanceCriteria.includes(a.original)
+    ) {
       return null;
+    }
     originals.add(a.original);
   }
   return {
@@ -405,7 +409,8 @@ export const formatAmendments = (story: Story): string => {
     const action =
       a.kind === 'replaced' ? `replaced by: ${a.replacement}` : 'superseded';
     lines.push(
-      `- ~~${a.original}~~ (${action}; reason: ${a.reason}; evidence: ${a.evidence}; authority: ${a.authority}; at: ${a.timestamp})`,
+      `- ~~${a.original}~~ (${action}; reason: ${a.reason}; evidence: ` +
+        `${a.evidence}; authority: ${a.authority}; at: ${a.timestamp})`,
     );
   }
   return lines.join('\n');
@@ -439,13 +444,16 @@ export const formatStory = (story: Story): string => {
 
 export const formatPrdStatus = (status: PrdStatus): string => {
   const lines = [
-    `[PRD status: ${status.passed}/${status.total} stories pass, ${status.verified} reviewer-verified]`,
+    `[PRD status: ${status.passed}/${status.total} stories pass, ` +
+      `${status.verified} reviewer-verified]`,
   ];
-  if (status.allPass) lines.push('All stories pass.');
-  else {
+  if (status.allPass) {
+    lines.push('All stories pass.');
+  } else {
     lines.push(`Remaining: ${status.pending.map((s) => s.id).join(', ')}`);
-    if (status.next)
+    if (status.next) {
       lines.push(`Next: ${status.next.id} - ${status.next.title}`);
+    }
   }
   return lines.join('\n');
 };

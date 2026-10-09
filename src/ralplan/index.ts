@@ -109,9 +109,11 @@ export const parseRalplanArgs = (raw: string): ParsedRalplanArgs => {
   const rest: string[] = [];
   for (let i = 0; i < words.length; i++) {
     const word = words[i];
-    if (word === '--deliberate') parsed.deliberate = true;
-    else if (word === '--interactive') parsed.interactive = true;
-    else if (word in ROLE_FLAGS) {
+    if (word === '--deliberate') {
+      parsed.deliberate = true;
+    } else if (word === '--interactive') {
+      parsed.interactive = true;
+    } else if (word in ROLE_FLAGS) {
       const value = words[i + 1];
       if (!value || value.startsWith('--')) {
         parsed.errors.push(`${word} requires a provider/model id`);
@@ -119,7 +121,9 @@ export const parseRalplanArgs = (raw: string): ParsedRalplanArgs => {
         parsed.models[ROLE_FLAGS[word]] = value;
         i++;
       }
-    } else rest.push(word);
+    } else {
+      rest.push(word);
+    }
   }
   parsed.task = rest.join(' ');
   return parsed;

@@ -113,8 +113,9 @@ export const normalizeReview = (
   if (review.verdict !== 'APPROVE') return review;
   const reasons: string[] = [];
   const blocking = review.findings.filter((f) => BLOCKING.has(f.severity));
-  if (blocking.length > 0)
+  if (blocking.length > 0) {
     reasons.push(`${blocking.length} blocking finding(s)`);
+  }
   let uncovered = 0;
   let unverified = 0;
   let unsupported = 0;
@@ -130,13 +131,16 @@ export const normalizeReview = (
   }
   if (uncovered > 0) reasons.push(`${uncovered} criteria not covered`);
   if (unverified > 0) reasons.push(`${unverified} criteria not VERIFIED`);
-  if (unsupported > 0)
+  if (unsupported > 0) {
     reasons.push(`${unsupported} criteria VERIFIED without evidence`);
+  }
   if (reasons.length === 0) return review;
   return {
     ...review,
     verdict: 'REJECT',
-    summary: `${review.summary} [verdict downgraded from APPROVE: ${reasons.join('; ')}]`,
+    summary:
+      `${review.summary} [verdict downgraded from APPROVE: ` +
+      `${reasons.join('; ')}]`,
   };
 };
 
@@ -186,22 +190,28 @@ export const applyRejection = (
   for (const finding of review.findings) {
     if (!BLOCKING.has(finding.severity)) continue;
     const story = byId.get(finding.storyId);
-    const note = `reviewer round ${round} [${finding.severity}] ${finding.title}: ${finding.fix}`;
+    const note =
+      `reviewer round ${round} [${finding.severity}] ${finding.title}: ` +
+      `${finding.fix}`;
     if (story) {
       markStoryFailed(story, note);
       reopened.add(story.id);
-    } else orphan.push(`${finding.title}: ${finding.fix}`);
+    } else {
+      orphan.push(`${finding.title}: ${finding.fix}`);
+    }
   }
   for (const entry of review.criteria) {
     const story = byId.get(entry.storyId);
-    if (!story || !story.acceptanceCriteria.includes(entry.criterion.trim()))
+    if (!story || !story.acceptanceCriteria.includes(entry.criterion.trim())) {
       continue;
+    }
     if (entry.status === 'VERIFIED' && hasEvidence(entry.evidence)) continue;
     const why =
       entry.status === 'VERIFIED' ? 'VERIFIED without evidence' : entry.status;
     markStoryFailed(
       story,
-      `reviewer round ${round}: criterion ${why}: "${entry.criterion}" (${entry.evidence})`,
+      `reviewer round ${round}: criterion ${why}: "${entry.criterion}" ` +
+        `(${entry.evidence})`,
     );
     reopened.add(story.id);
   }
@@ -224,11 +234,8 @@ export const runRalphLoop = async (
   const run = options.delegateFn ?? delegate;
   const authority = `ralph:${request.runId}`;
   const verifyCommands = state.verifyCommands;
-  let deslop: RalphResult['deslop'] = request.deslop
-    ? state.cleanupDone
-      ? 'done'
-      : 'not-reached'
-    : 'skipped';
+  let deslop: RalphResult['deslop'] = 'skipped';
+  if (request.deslop) deslop = state.cleanupDone ? 'done' : 'not-reached';
   let lastVerify: CommandResult[] | null = null;
 
   const persist = (): void => store.persist(prd, state);
@@ -405,7 +412,8 @@ export const runRalphLoop = async (
     }
     if (unsupported.length > 0) {
       problems.push(
-        `criteria claimed met without evidence (>= ${MIN_EVIDENCE_LENGTH} chars needed): ${unsupported.join(' | ')}`,
+        `criteria claimed met without evidence (>= ${MIN_EVIDENCE_LENGTH} ` +
+          `chars needed): ${unsupported.join(' | ')}`,
       );
     }
 
@@ -451,7 +459,9 @@ export const runRalphLoop = async (
       learnings: report.learnings,
     });
     if (outcome === 'failed' && story.attempts >= MAX_STORY_ATTEMPTS) {
-      state.blockers = `${story.id} failed ${story.attempts} attempts: ${problems.join('; ')}`;
+      state.blockers =
+        `${story.id} failed ${story.attempts} attempts: ` +
+        `${problems.join('; ')}`;
       return 'blocked';
     }
     return null;
@@ -471,14 +481,16 @@ export const runRalphLoop = async (
       'Make them pass without weakening them.';
     for (const r of failing) {
       story.notes.push(
-        `${r.command} (exit ${r.exitCode ?? '?'}): ${r.output.slice(-OUTPUT_NOTE)}`,
+        `${r.command} (exit ${r.exitCode ?? '?'}): ` +
+          `${r.output.slice(-OUTPUT_NOTE)}`,
       );
     }
+    const failedText = failedCommands(results);
     entry({
       storyId: story.id,
       attempt: 0,
       outcome: 'verify-failed',
-      summary: `regression commands failed before review: ${failedCommands(results)}`,
+      summary: `regression commands failed before review: ${failedText}`,
       filesChanged: [],
       learnings: [],
     });
@@ -572,7 +584,9 @@ export const runRalphLoop = async (
         state.phase = 'stories';
         if (state.iterations >= config.maxIterations) {
           return finish('exhausted', {
-            note: `story attempt limit ${config.maxIterations} reached with ${status.pending.length} story(ies) open`,
+            note:
+              `story attempt limit ${config.maxIterations} reached with ` +
+              `${status.pending.length} story(ies) open`,
           });
         }
         state.iterations++;
@@ -592,7 +606,9 @@ export const runRalphLoop = async (
       }
       if (state.reviewRounds >= config.maxReviewAttempts) {
         return finish('exhausted', {
-          note: `reviewer did not approve after ${state.reviewRounds} round(s); all stories pass by executor evidence only`,
+          note:
+            `reviewer did not approve after ${state.reviewRounds} round(s); ` +
+            'all stories pass by executor evidence only',
         });
       }
       state.reviewRounds++;
@@ -634,15 +650,22 @@ export const runRalphLoop = async (
       if (cleaned.outOfScope.length > 0) {
         deslop = 'failed';
         return finish('failed', {
-          error: `cleanup touched files outside the run's scope: ${cleaned.outOfScope.join(', ')}`,
-          note: 'reviewer approved the pre-cleanup code; inspect the working tree before using it.',
+          error:
+            "cleanup touched files outside the run's scope: " +
+            `${cleaned.outOfScope.join(', ')}`,
+          note:
+            'reviewer approved the pre-cleanup code; inspect the working ' +
+            'tree before using it.',
         });
       }
       if (!cleaned.ok) {
         deslop = 'failed';
         return finish('failed', {
           error: 'post-cleanup regression commands still fail',
-          note: 'reviewer approved the pre-cleanup code; the cleanup pass broke the regression run and repair attempts failed. Inspect the working tree before using it.',
+          note:
+            'reviewer approved the pre-cleanup code; the cleanup pass broke ' +
+            'the regression run and repair attempts failed. Inspect the ' +
+            'working tree before using it.',
         });
       }
       deslop = 'done';
@@ -654,7 +677,8 @@ export const runRalphLoop = async (
           attempt: state.reviewRounds,
           outcome: 'failed',
           summary:
-            'post-cleanup repair changed code after approval; re-review required',
+            'post-cleanup repair changed code after approval; re-review ' +
+            'required',
           filesChanged: [],
           learnings: [],
         });

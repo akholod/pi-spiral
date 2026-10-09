@@ -93,7 +93,8 @@ const list = (items: string[]): string[] =>
 export const formatCriticReview = (review: CriticReview): string => {
   const findings = review.findings.map((finding) =>
     [
-      `- [${finding.severity}] ${finding.title} (confidence ${finding.confidence})`,
+      `- [${finding.severity}] ${finding.title} (confidence ` +
+        `${finding.confidence})`,
       `  Evidence: ${finding.evidence}`,
       `  Why: ${finding.why}`,
       `  Fix: ${finding.fix}`,
@@ -101,7 +102,8 @@ export const formatCriticReview = (review: CriticReview): string => {
   );
   const ambiguities = review.ambiguities.map(
     (item) =>
-      `- "${item.quote}" -> A: ${item.interpretationA} / B: ${item.interpretationB}; risk: ${item.riskIfWrong}`,
+      `- "${item.quote}" -> A: ${item.interpretationA} / B: ` +
+      `${item.interpretationB}; risk: ${item.riskIfWrong}`,
   );
   const gates = Object.entries(review.gates).map(
     ([name, gate]) =>
@@ -238,8 +240,10 @@ export const buildCriticTask = (
     'feasibility, rollback, the four ralplan gates, executor/stakeholder/',
     'skeptic perspectives, gap analysis, self-audit and realist check.',
     mode === 'deliberate'
-      ? 'DELIBERATE mode: the deliberateAdditions gate must fail on a missing or weak pre-mortem or test plan.'
-      : 'SHORT mode: report the deliberateAdditions gate as pass with reason "not required".',
+      ? 'DELIBERATE mode: the deliberateAdditions gate must fail on a ' +
+        'missing or weak pre-mortem or test plan.'
+      : 'SHORT mode: report the deliberateAdditions gate as pass with reason ' +
+        '"not required".',
     'Return the structured JSON verdict with every field populated.',
     '',
     '## Original task',

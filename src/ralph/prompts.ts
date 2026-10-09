@@ -158,7 +158,8 @@ export const buildExecutorTask = (
     '1. Explore before editing: find where this belongs, which patterns the',
     '   codebase uses, which tests exist, what could break.',
     '2. Implement the story with the smallest viable diff. No scope creep, no',
-    '   new abstractions for single-use logic, no refactoring of adjacent code.',
+    '   new abstractions for single-use logic, no refactoring of adjacent ' +
+      'code.',
     '3. Verify EACH active criterion with fresh evidence: run the relevant',
     '   tests / build / typecheck and read the output. Words like "should" or',
     '   "probably" are not evidence.',
@@ -216,7 +217,8 @@ export interface ReviewContext {
 
 export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
   const lines = [
-    `[${ctx.reviewerLabel.toUpperCase()} VERIFICATION REQUIRED - round ${ctx.round}/${ctx.maxRounds}]`,
+    `[${ctx.reviewerLabel.toUpperCase()} VERIFICATION REQUIRED - round ` +
+      `${ctx.round}/${ctx.maxRounds}]`,
     '',
     'The executor claims every user story of this Ralph run is complete.',
     'You are the independent reviewer that gates completion. Verify against',

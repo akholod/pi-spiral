@@ -45,8 +45,10 @@ export const resolveStateRoot = (
   stateDir.startsWith('~/') ? join(homeDir, stateDir.slice(2)) : stateDir;
 
 // Stable per-project directory name: readable prefix + hash of the path.
-export const projectKey = (cwd: string): string =>
-  `${basename(cwd).replace(/[^a-zA-Z0-9._-]/g, '_')}-${sha256(cwd).slice(0, 12)}`;
+export const projectKey = (cwd: string): string => {
+  const name = basename(cwd).replace(/[^a-zA-Z0-9._-]/g, '_');
+  return `${name}-${sha256(cwd).slice(0, 12)}`;
+};
 
 export const projectDirFor = (stateRoot: string, cwd: string): string =>
   join(stateRoot, projectKey(cwd));
@@ -129,101 +131,6 @@ export class StateDrift extends Error {
 interface Integrity {
   prd: string;
   run: string;
-}
-
-// Owns the files of one run. Detects external edits between persists.
-export class RunStore {
-  readonly runDir: string;
-  private integrity: Integrity | null = null;
-
-  private constructor(runDir: string) {
-    this.runDir = runDir;
-  }
-
-  static create(runDir: string): RunStore {
-    mkdirSync(runDir, { recursive: true });
-    return new RunStore(runDir);
-  }
-
-  // Opens an existing run and checks it against integrity.json. `drift`
-  // lists files that do not match; the caller decides whether to go on.
-  static open(runDir: string): { store: RunStore; drift: string[] } {
-    const store = new RunStore(runDir);
-    const raw = readIfExists(join(runDir, INTEGRITY_FILE));
-    let drift: string[] = [];
-    if (raw === null) {
-      drift = [INTEGRITY_FILE];
-    } else {
-      try {
-        const parsed = JSON.parse(raw) as Partial<Integrity>;
-        if (typeof parsed.prd !== 'string' || typeof parsed.run !== 'string') {
-          drift = [INTEGRITY_FILE];
-        } else {
-          store.integrity = { prd: parsed.prd, run: parsed.run };
-          drift = store.currentDrift();
-        }
-      } catch {
-        drift = [INTEGRITY_FILE];
-      }
-    }
-    return { store, drift };
-  }
-
-  // Adopt the on-disk files as-is (after the user forced a resume).
-  trustCurrent(): void {
-    this.integrity = {
-      prd: sha256(readIfExists(join(this.runDir, PRD_FILE)) ?? ''),
-      run: sha256(readIfExists(join(this.runDir, RUN_FILE)) ?? ''),
-    };
-  }
-
-  private currentDrift(): string[] {
-    if (!this.integrity) return [];
-    const drift: string[] = [];
-    const prd = readIfExists(join(this.runDir, PRD_FILE)) ?? '';
-    const run = readIfExists(join(this.runDir, RUN_FILE)) ?? '';
-    if (sha256(prd) !== this.integrity.prd) drift.push(PRD_FILE);
-    if (sha256(run) !== this.integrity.run) drift.push(RUN_FILE);
-    return drift;
-  }
-
-  // Throws StateDrift when the files changed since the last persist.
-  persist(prd: Prd, state: RunState): void {
-    const drift = this.currentDrift();
-    if (drift.length > 0) throw new StateDrift(drift);
-    const prdText = JSON.stringify(prd, null, 2) + '\n';
-    const runText = JSON.stringify(state, null, 2) + '\n';
-    writeAtomic(join(this.runDir, PRD_FILE), prdText);
-    writeAtomic(join(this.runDir, RUN_FILE), runText);
-    writeAtomic(join(this.runDir, PROGRESS_FILE), renderProgress(state));
-    this.integrity = { prd: sha256(prdText), run: sha256(runText) };
-    writeAtomic(
-      join(this.runDir, INTEGRITY_FILE),
-      JSON.stringify(this.integrity, null, 2) + '\n',
-    );
-  }
-
-  readPrd(): { prd?: Prd; error?: string } {
-    const path = join(this.runDir, PRD_FILE);
-    try {
-      const prd = normalizePrd(JSON.parse(readFileSync(path, 'utf8')));
-      return prd ? { prd } : { error: `invalid PRD structure in ${path}` };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { error: `cannot read ${path}: ${message}` };
-    }
-  }
-
-  readRun(): { state?: RunState; error?: string } {
-    const path = join(this.runDir, RUN_FILE);
-    try {
-      const state = normalizeRun(JSON.parse(readFileSync(path, 'utf8')));
-      return state ? { state } : { error: `invalid run state in ${path}` };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      return { error: `cannot read ${path}: ${message}` };
-    }
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -334,6 +241,151 @@ export const normalizeRun = (raw: unknown): RunState | null => {
   };
 };
 
+// ---------------------------------------------------------------------------
+// progress.md (OMC progress.txt layout: patterns on top, entries below).
+
+export const renderProgress = (state: RunState): string => {
+  const lines = [
+    '# Ralph progress log',
+    `Run: ${state.runId}`,
+    `Started: ${state.startedAt}`,
+    `Task: ${state.task}`,
+    `Outcome: ${state.outcome} (phase ${state.phase})`,
+    `Verification: ${state.verification}${
+      state.verifyCommands.length > 0
+        ? ` (${state.verifyCommands.join(' && ')})`
+        : ' (no commands)'
+    }`,
+    '',
+    '## Codebase patterns',
+    ...(state.patterns.length > 0
+      ? state.patterns.map((p) => `- ${p}`)
+      : ['(none discovered yet)']),
+    '',
+    '---',
+  ];
+  for (const entry of state.entries) {
+    lines.push(
+      '',
+      `## [${entry.timestamp}] ${entry.storyId} attempt ${entry.attempt}: ` +
+        `${entry.outcome}`,
+      '',
+      entry.summary,
+    );
+    if (entry.filesChanged.length > 0) {
+      lines.push(
+        '',
+        '**Files changed:**',
+        ...entry.filesChanged.map((f) => `- ${f}`),
+      );
+    }
+    if (entry.learnings.length > 0) {
+      lines.push(
+        '',
+        '**Learnings for future iterations:**',
+        ...entry.learnings.map((l) => `- ${l}`),
+      );
+    }
+    lines.push('', '---');
+  }
+  return `${lines.join('\n')}\n`;
+};
+
+// Owns the files of one run. Detects external edits between persists.
+export class RunStore {
+  readonly runDir: string;
+  private integrity: Integrity | null = null;
+
+  private constructor(runDir: string) {
+    this.runDir = runDir;
+  }
+
+  static create(runDir: string): RunStore {
+    mkdirSync(runDir, { recursive: true });
+    return new RunStore(runDir);
+  }
+
+  // Opens an existing run and checks it against integrity.json. `drift`
+  // lists files that do not match; the caller decides whether to go on.
+  static open(runDir: string): { store: RunStore; drift: string[] } {
+    const store = new RunStore(runDir);
+    const raw = readIfExists(join(runDir, INTEGRITY_FILE));
+    let drift: string[];
+    if (raw === null) {
+      drift = [INTEGRITY_FILE];
+    } else {
+      try {
+        const parsed = JSON.parse(raw) as Partial<Integrity>;
+        if (typeof parsed.prd !== 'string' || typeof parsed.run !== 'string') {
+          drift = [INTEGRITY_FILE];
+        } else {
+          store.integrity = { prd: parsed.prd, run: parsed.run };
+          drift = store.currentDrift();
+        }
+      } catch {
+        drift = [INTEGRITY_FILE];
+      }
+    }
+    return { store, drift };
+  }
+
+  // Adopt the on-disk files as-is (after the user forced a resume).
+  trustCurrent(): void {
+    this.integrity = {
+      prd: sha256(readIfExists(join(this.runDir, PRD_FILE)) ?? ''),
+      run: sha256(readIfExists(join(this.runDir, RUN_FILE)) ?? ''),
+    };
+  }
+
+  private currentDrift(): string[] {
+    if (!this.integrity) return [];
+    const drift: string[] = [];
+    const prd = readIfExists(join(this.runDir, PRD_FILE)) ?? '';
+    const run = readIfExists(join(this.runDir, RUN_FILE)) ?? '';
+    if (sha256(prd) !== this.integrity.prd) drift.push(PRD_FILE);
+    if (sha256(run) !== this.integrity.run) drift.push(RUN_FILE);
+    return drift;
+  }
+
+  // Throws StateDrift when the files changed since the last persist.
+  persist(prd: Prd, state: RunState): void {
+    const drift = this.currentDrift();
+    if (drift.length > 0) throw new StateDrift(drift);
+    const prdText = `${JSON.stringify(prd, null, 2)}\n`;
+    const runText = `${JSON.stringify(state, null, 2)}\n`;
+    writeAtomic(join(this.runDir, PRD_FILE), prdText);
+    writeAtomic(join(this.runDir, RUN_FILE), runText);
+    writeAtomic(join(this.runDir, PROGRESS_FILE), renderProgress(state));
+    this.integrity = { prd: sha256(prdText), run: sha256(runText) };
+    writeAtomic(
+      join(this.runDir, INTEGRITY_FILE),
+      `${JSON.stringify(this.integrity, null, 2)}\n`,
+    );
+  }
+
+  readPrd(): { prd?: Prd; error?: string } {
+    const path = join(this.runDir, PRD_FILE);
+    try {
+      const prd = normalizePrd(JSON.parse(readFileSync(path, 'utf8')));
+      return prd ? { prd } : { error: `invalid PRD structure in ${path}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { error: `cannot read ${path}: ${message}` };
+    }
+  }
+
+  readRun(): { state?: RunState; error?: string } {
+    const path = join(this.runDir, RUN_FILE);
+    try {
+      const state = normalizeRun(JSON.parse(readFileSync(path, 'utf8')));
+      return state ? { state } : { error: `invalid run state in ${path}` };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { error: `cannot read ${path}: ${message}` };
+    }
+  }
+}
+
 // Most recently modified run of this project that holds a run.json.
 export const findLatestRun = (projectDir: string): string | null => {
   if (!existsSync(projectDir)) return null;
@@ -388,63 +440,15 @@ export const acquireProjectLock = (projectDir: string): Lock => {
   throw new Error(`cannot acquire ${path}`);
 };
 
-// ---------------------------------------------------------------------------
-// progress.md (OMC progress.txt layout: patterns on top, entries below).
-
-export const renderProgress = (state: RunState): string => {
-  const lines = [
-    '# Ralph progress log',
-    `Run: ${state.runId}`,
-    `Started: ${state.startedAt}`,
-    `Task: ${state.task}`,
-    `Outcome: ${state.outcome} (phase ${state.phase})`,
-    `Verification: ${state.verification}` +
-      (state.verifyCommands.length > 0
-        ? ` (${state.verifyCommands.join(' && ')})`
-        : ' (no commands)'),
-    '',
-    '## Codebase patterns',
-    ...(state.patterns.length > 0
-      ? state.patterns.map((p) => `- ${p}`)
-      : ['(none discovered yet)']),
-    '',
-    '---',
-  ];
-  for (const entry of state.entries) {
-    lines.push(
-      '',
-      `## [${entry.timestamp}] ${entry.storyId} attempt ${entry.attempt}: ${entry.outcome}`,
-      '',
-      entry.summary,
-    );
-    if (entry.filesChanged.length > 0) {
-      lines.push(
-        '',
-        '**Files changed:**',
-        ...entry.filesChanged.map((f) => `- ${f}`),
-      );
-    }
-    if (entry.learnings.length > 0) {
-      lines.push(
-        '',
-        '**Learnings for future iterations:**',
-        ...entry.learnings.map((l) => `- ${l}`),
-      );
-    }
-    lines.push('', '---');
-  }
-  return lines.join('\n') + '\n';
-};
-
 // Context injected into executor prompts (OMC getProgressContext):
 // patterns, recent learnings, recent entries.
 export const formatProgressContext = (state: RunState): string => {
   const parts: string[] = [];
   if (state.patterns.length > 0) {
     parts.push(
-      '<codebase-patterns>\n' +
-        state.patterns.map((p) => `- ${p}`).join('\n') +
-        '\n</codebase-patterns>',
+      `<codebase-patterns>\n${state.patterns
+        .map((p) => `- ${p}`)
+        .join('\n')}\n</codebase-patterns>`,
     );
   }
   const learnings = [
@@ -452,22 +456,19 @@ export const formatProgressContext = (state: RunState): string => {
   ];
   if (learnings.length > 0) {
     parts.push(
-      '<learnings>\n' +
-        learnings.map((l) => `- ${l}`).join('\n') +
-        '\n</learnings>',
+      `<learnings>\n${learnings.map((l) => `- ${l}`).join('\n')}\n</learnings>`,
     );
   }
   const recent = state.entries.slice(-3);
   if (recent.length > 0) {
     parts.push(
-      '<recent-progress>\n' +
-        recent
-          .map(
-            (e) =>
-              `### ${e.storyId} attempt ${e.attempt} (${e.outcome})\n${e.summary}`,
-          )
-          .join('\n\n') +
-        '\n</recent-progress>',
+      `<recent-progress>\n${recent
+        .map(
+          (e) =>
+            `### ${e.storyId} attempt ${e.attempt} ` +
+            `(${e.outcome})\n${e.summary}`,
+        )
+        .join('\n\n')}\n</recent-progress>`,
     );
   }
   return parts.join('\n\n');

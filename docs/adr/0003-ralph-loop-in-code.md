@@ -53,7 +53,7 @@ children (ADR 0001). The same shape fits ralph better than a prompt loop.
    Commands the PRD planner proposes come from a model, so they run only
    after the user confirms them (`/ralph` asks; the `ralph` tool never
    runs them). With no commands at all the run reports `verification:
-   none` instead of pretending a pass.
+none` instead of pretending a pass.
 4. **Completion invariants in code**: a story passes only with every
    active criterion reported met with substantive evidence (a boolean is
    not evidence) and a green verify run; a red verify run before the

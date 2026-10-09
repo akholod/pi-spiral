@@ -119,7 +119,8 @@ test('preflight: distinct critic model gives no warning', () => {
 test('role definitions pass pi-subagents runtime validation', async (t) => {
   const registryPath = join(
     homedir(),
-    '.pi/agent/npm/node_modules/pi-subagents/src/agents/runtime-agent-registry.js',
+    '.pi/agent/npm/node_modules/pi-subagents/src/agents/' +
+      'runtime-agent-registry.js',
   );
   if (!existsSync(registryPath)) {
     t.skip('pi-subagents not installed');

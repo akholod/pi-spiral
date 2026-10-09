@@ -130,8 +130,12 @@ export const stripJsonc = (text: string): string => {
     } else if (ch === ',') {
       let j = i + 1;
       while (j < text.length && /\s/.test(text[j])) j++;
-      if (text[j] === '}' || text[j] === ']') i++;
-      else ((out += ch), i++);
+      if (text[j] === '}' || text[j] === ']') {
+        i++;
+      } else {
+        out += ch;
+        i++;
+      }
     } else {
       out += ch;
       i++;
@@ -215,10 +219,11 @@ const checkShape = (
 export const parseModelId = (
   model: string,
 ): { provider: string; modelId: string } | undefined => {
-  if (model === INHERIT) return undefined;
   const slash = model.indexOf('/');
-  if (slash <= 0 || slash === model.length - 1) return undefined;
-  return { provider: model.slice(0, slash), modelId: model.slice(slash + 1) };
+  const valid = model !== INHERIT && slash > 0 && slash !== model.length - 1;
+  return valid
+    ? { provider: model.slice(0, slash), modelId: model.slice(slash + 1) }
+    : undefined;
 };
 
 const validateRole = (
@@ -380,14 +385,15 @@ export interface LoadOptions {
 }
 
 const readConfigFile = (path: string, issues: ConfigIssue[]): unknown => {
-  if (!existsSync(path)) return undefined;
+  let parsed: unknown;
+  if (!existsSync(path)) return parsed;
   try {
-    return parseJsonc(readFileSync(path, 'utf8'));
+    parsed = parseJsonc(readFileSync(path, 'utf8'));
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     issues.push({ path, message: `cannot parse: ${message}` });
-    return undefined;
   }
+  return parsed;
 };
 
 // Fail-closed: any parse, shape or value issue makes the whole result fall

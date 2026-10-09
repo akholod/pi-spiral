@@ -79,14 +79,18 @@ export const normalizeReview = (review: CriticReview): CriticReview => {
     .map(([name]) => name);
   if (blocking.length === 0 && failedGates.length === 0) return review;
   const reasons: string[] = [];
-  if (blocking.length > 0)
+  if (blocking.length > 0) {
     reasons.push(`${blocking.length} blocking finding(s)`);
-  if (failedGates.length > 0)
+  }
+  if (failedGates.length > 0) {
     reasons.push(`failed gates: ${failedGates.join(', ')}`);
+  }
   return {
     ...review,
     verdict: 'ITERATE',
-    summary: `${review.summary} [verdict downgraded from APPROVE: ${reasons.join('; ')}]`,
+    summary:
+      `${review.summary} [verdict downgraded from APPROVE: ` +
+      `${reasons.join('; ')}]`,
   };
 };
 
@@ -291,7 +295,8 @@ export const runRalplanLoop = async (
         return done(
           'exhausted',
           undefined,
-          'user feedback applied to the plan but not reviewed: iteration limit reached',
+          'user feedback applied to the plan but not reviewed: iteration ' +
+            'limit reached',
         );
       }
       reviewOnly = true;

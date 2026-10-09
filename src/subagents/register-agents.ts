@@ -56,11 +56,13 @@ const ROLE_DEFINITIONS: Record<AgentName, RoleDefinition> = {
   },
   executor: {
     description:
-      'Spiral executor: implements one ralph user story end to end (writes code, runs checks)',
+      'Spiral executor: implements one ralph user story end to end (writes ' +
+      'code, runs checks)',
   },
   cleaner: {
     description:
-      'Spiral cleaner: bounded, regression-safe AI-slop cleanup of the files a ralph run changed',
+      'Spiral cleaner: bounded, regression-safe AI-slop cleanup of the ' +
+      'files a ralph run changed',
   },
 };
 

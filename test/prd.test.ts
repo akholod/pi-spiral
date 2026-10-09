@@ -66,105 +66,113 @@ test('prdStatus picks the highest-priority pending story', () => {
   assert.equal(status.next, null);
 });
 
-test('amendCriterion: closed errors, ledger keeps the original, resets passes', () => {
-  const story: Story = { ...prd().userStories[0], passes: true };
-  const base = { kind: 'replaced' as const, reason: 'count was wrong' };
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        ...base,
-        original: 'nope',
-        replacement: 'x',
-        evidence: 'enumerated 12 not 16',
-      },
-      'a',
-    ),
-    'original-not-active',
-  );
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        ...base,
-        original: 'f() returns 1',
-        replacement: 'x',
-        evidence: 'short',
-      },
-      'a',
-    ),
-    'evidence-too-short',
-  );
-  assert.equal(
-    amendCriterion(
-      story,
-      { ...base, original: 'f() returns 1', evidence: 'enumerated 12 not 16' },
-      'a',
-    ),
-    'replacement-required',
-  );
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        kind: 'superseded',
-        original: 'f() returns 1',
-        replacement: 'x',
-        reason: 'r',
-        evidence: 'enumerated 12 not 16',
-      },
-      'a',
-    ),
-    'replacement-not-allowed',
-  );
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        ...base,
-        original: 'f() returns 1',
-        replacement: 'f() returns 2',
-        evidence: 'enumerated 12 not 16',
-      },
-      'ralph:run',
-      '2026-01-01T00:00:00.000Z',
-    ),
-    null,
-  );
-  assert.deepEqual(story.acceptanceCriteria, ['f() returns 2']);
-  assert.equal(story.passes, false);
-  assert.equal(story.criterionAmendments[0].original, 'f() returns 1');
-  assert.equal(story.criterionAmendments[0].authority, 'ralph:run');
-  // the last active criterion cannot be superseded away
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        kind: 'superseded',
-        original: 'f() returns 2',
-        reason: 'r',
-        evidence: 'enumerated 12 not 16',
-      },
-      'a',
-    ),
-    'last-criterion',
-  );
-  // an original can be amended only once
-  story.acceptanceCriteria.push('f() returns 1');
-  assert.equal(
-    amendCriterion(
-      story,
-      {
-        ...base,
-        original: 'f() returns 1',
-        replacement: 'y',
-        evidence: 'enumerated 12 not 16',
-      },
-      'a',
-    ),
-    'original-not-active',
-  );
-});
+test(
+  'amendCriterion: closed errors, ledger keeps ' +
+    'the original, resets passes',
+  () => {
+    const story: Story = { ...prd().userStories[0], passes: true };
+    const base = { kind: 'replaced' as const, reason: 'count was wrong' };
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          ...base,
+          original: 'nope',
+          replacement: 'x',
+          evidence: 'enumerated 12 not 16',
+        },
+        'a',
+      ),
+      'original-not-active',
+    );
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          ...base,
+          original: 'f() returns 1',
+          replacement: 'x',
+          evidence: 'short',
+        },
+        'a',
+      ),
+      'evidence-too-short',
+    );
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          ...base,
+          original: 'f() returns 1',
+          evidence: 'enumerated 12 not 16',
+        },
+        'a',
+      ),
+      'replacement-required',
+    );
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          kind: 'superseded',
+          original: 'f() returns 1',
+          replacement: 'x',
+          reason: 'r',
+          evidence: 'enumerated 12 not 16',
+        },
+        'a',
+      ),
+      'replacement-not-allowed',
+    );
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          ...base,
+          original: 'f() returns 1',
+          replacement: 'f() returns 2',
+          evidence: 'enumerated 12 not 16',
+        },
+        'ralph:run',
+        '2026-01-01T00:00:00.000Z',
+      ),
+      null,
+    );
+    assert.deepEqual(story.acceptanceCriteria, ['f() returns 2']);
+    assert.equal(story.passes, false);
+    assert.equal(story.criterionAmendments[0].original, 'f() returns 1');
+    assert.equal(story.criterionAmendments[0].authority, 'ralph:run');
+    // the last active criterion cannot be superseded away
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          kind: 'superseded',
+          original: 'f() returns 2',
+          reason: 'r',
+          evidence: 'enumerated 12 not 16',
+        },
+        'a',
+      ),
+      'last-criterion',
+    );
+    // an original can be amended only once
+    story.acceptanceCriteria.push('f() returns 1');
+    assert.equal(
+      amendCriterion(
+        story,
+        {
+          ...base,
+          original: 'f() returns 1',
+          replacement: 'y',
+          evidence: 'enumerated 12 not 16',
+        },
+        'a',
+      ),
+      'original-not-active',
+    );
+  },
+);
 
 test('normalizePrd fails closed on a contradictory ledger', () => {
   const p = prd();

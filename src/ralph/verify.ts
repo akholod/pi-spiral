@@ -18,8 +18,9 @@ const MAX_BUFFER = 16 * 1024 * 1024;
 
 const tail = (text: string): string =>
   text.length > OUTPUT_TAIL
-    ? `[... ${text.length - OUTPUT_TAIL} chars omitted]\n` +
-      text.slice(-OUTPUT_TAIL)
+    ? `[... ${text.length - OUTPUT_TAIL} chars omitted]\n${text.slice(
+        -OUTPUT_TAIL,
+      )}`
     : text;
 
 export const runCommand = (
@@ -46,11 +47,12 @@ export const runCommand = (
           return;
         }
         const exitCode = typeof error.code === 'number' ? error.code : null;
-        const reason = error.killed
-          ? `\n[killed: timeout ${timeoutMs}ms or cancelled]`
-          : exitCode === null
-            ? `\n[${error.message}]`
-            : '';
+        let reason = '';
+        if (error.killed) {
+          reason = `\n[killed: timeout ${timeoutMs}ms or cancelled]`;
+        } else if (exitCode === null) {
+          reason = `\n[${error.message}]`;
+        }
         resolve({ command, ok: false, exitCode, output: output + reason });
       },
     );
@@ -79,7 +81,9 @@ export const formatCommandResults = (results: CommandResult[]): string => {
   return results
     .map(
       (r) =>
-        `$ ${r.command}\n[${r.ok ? 'OK' : `FAILED exit ${r.exitCode ?? '?'}`}]\n${r.output}`,
+        `$ ${r.command}\n` +
+        `[${r.ok ? 'OK' : `FAILED exit ${r.exitCode ?? '?'}`}]\n` +
+        `${r.output}`,
     )
     .join('\n\n');
 };

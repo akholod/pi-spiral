@@ -40,8 +40,9 @@ import { formatPrdStatus, prdStatus } from '../src/ralph/prd.ts';
 import type { RalphResult } from '../src/ralph/types.ts';
 
 const formatProgress = (progress: LoopProgress): string =>
-  `[ralplan] iteration ${progress.iteration}: ${progress.role} ${progress.phase}` +
-  (progress.detail ? ` (${progress.detail})` : '');
+  `[ralplan] iteration ${progress.iteration}: ` +
+  `${progress.role} ${progress.phase}` +
+  `${progress.detail ? ` (${progress.detail})` : ''}`;
 
 const isSuccess = (result: RalplanResult): boolean =>
   result.outcome === 'approved' || result.outcome === 'exhausted';
@@ -58,7 +59,8 @@ const summarize = (result: RalplanResult): string => {
       break;
     case 'exhausted':
       lines.push(
-        `ralplan NOT approved: critic verdict ${verdict} after ${rounds} iteration(s) (limit reached).`,
+        `ralplan NOT approved: critic verdict ${verdict} after ${rounds} ` +
+          'iteration(s) (limit reached).',
       );
       lines.push(
         'status: latest version saved for manual review. Nothing was executed.',
@@ -72,7 +74,8 @@ const summarize = (result: RalplanResult): string => {
       break;
     case 'failed':
       lines.push(
-        `ralplan FAILED after ${rounds} completed iteration(s): ${result.error}`,
+        `ralplan FAILED after ${rounds} completed iteration(s): ` +
+          `${result.error}`,
       );
       break;
   }
@@ -84,14 +87,18 @@ const summarize = (result: RalplanResult): string => {
 };
 
 const USAGE =
-  'Usage: /ralplan [--deliberate] [--interactive] [--planner m] [--architect m] [--critic m] <task>';
+  'Usage: /ralplan [--deliberate] [--interactive] [--planner m] ' +
+  '[--architect m] [--critic m] <task>';
 
 const RALPH_USAGE =
-  'Usage: /ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan <artifact>] [--resume [runId]] [--prd m] [--executor m] [--reviewer m] [--cleaner m] <task>';
+  'Usage: /ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan ' +
+  '<artifact>] [--resume [runId]] [--prd m] [--executor m] [--reviewer m] ' +
+  '[--cleaner m] <task>';
 
 const formatRalphProgress = (progress: RalphProgress): string =>
-  `[ralph] iteration ${progress.iteration}: ${progress.role} ${progress.phase}` +
-  (progress.detail ? ` (${progress.detail})` : '');
+  `[ralph] iteration ${progress.iteration}: ${progress.role} ${progress.phase}${
+    progress.detail ? ` (${progress.detail})` : ''
+  }`;
 
 const summarizeRalph = (result: RalphResult): string => {
   const status = prdStatus(result.prd);
@@ -99,17 +106,21 @@ const summarizeRalph = (result: RalphResult): string => {
   switch (result.outcome) {
     case 'completed':
       lines.push(
-        `ralph COMPLETED after ${result.iterations} iteration(s): all ${status.total} stories pass and the ${result.reviews.length > 0 ? 'reviewer' : 'loop'} verified them.`,
+        `ralph COMPLETED after ${result.iterations} iteration(s): all ` +
+          `${status.total} stories pass and the ` +
+          `${result.reviews.length > 0 ? 'reviewer' : 'loop'} verified them.`,
       );
       break;
     case 'exhausted':
       lines.push(
-        `ralph NOT complete: budget exhausted after ${result.iterations} iteration(s).`,
+        `ralph NOT complete: budget exhausted after ${result.iterations} ` +
+          'iteration(s).',
       );
       break;
     case 'blocked':
       lines.push(
-        `ralph BLOCKED after ${result.iterations} iteration(s); user input needed.`,
+        `ralph BLOCKED after ${result.iterations} iteration(s); user input ` +
+          'needed.',
       );
       break;
     case 'aborted':
@@ -125,12 +136,19 @@ const summarizeRalph = (result: RalphResult): string => {
   lines.push(formatPrdStatus(status));
   lines.push(
     result.verification === 'none'
-      ? 'verification: NONE (no regression commands ran; only executor and reviewer evidence)'
-      : `verification: ${result.verification} (${result.verifyCommands.join(' && ')})`,
+      ? 'verification: NONE (no regression commands ran; only executor and ' +
+          'reviewer evidence)'
+      : `verification: ${result.verification} ` +
+          `(${result.verifyCommands.join(' && ')})`,
   );
   lines.push(`deslop: ${result.deslop}`);
   lines.push(
-    `changed files: ${result.changedFiles.length > 0 ? result.changedFiles.join(', ') : 'none reported'}`,
+    'changed files: ' +
+      `${
+        result.changedFiles.length > 0
+          ? result.changedFiles.join(', ')
+          : 'none reported'
+      }`,
   );
   lines.push(
     result.outcome === 'completed'
@@ -176,8 +194,9 @@ const makeCheckpointHandler =
       return { action: 'proceed' };
     }
     if (choice === 'Skip review') return { action: 'skip' };
-    if (choice === 'Reject' || choice === undefined)
+    if (choice === 'Reject' || choice === undefined) {
       return { action: 'reject' };
+    }
     return { action: 'proceed' };
   };
 
@@ -278,7 +297,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
 
   pi.registerCommand('ralplan', {
     description:
-      'Consensus planning: planner -> architect -> critic loop, writes a plan artifact',
+      'Consensus planning: planner -> architect -> critic loop, writes a ' +
+      'plan artifact',
     handler: async (args, ctx) => {
       const parsed = parseRalplanArgs(args);
       if (parsed.errors.length > 0 || parsed.task === '') {
@@ -297,8 +317,9 @@ export default function spiralExtension(pi: ExtensionAPI) {
         ['planner', 'critic'],
       );
       if (errors.length > 0) {
-        for (const error of errors)
+        for (const error of errors) {
           ctx.ui.notify(`[ralplan] ${error}`, 'error');
+        }
         ctx.ui.notify('[ralplan] not started: fix role models first', 'error');
         return;
       }
@@ -347,12 +368,17 @@ export default function spiralExtension(pi: ExtensionAPI) {
     name: 'ralplan',
     label: 'Ralplan',
     description:
-      'Run consensus planning (planner, architect, critic) for a task and write a plan artifact marked pending approval. Does not execute anything. Interactive checkpoints are not available from the tool; use /ralplan --interactive for those.',
+      'Run consensus planning (planner, architect, critic) for a task and ' +
+      'write a plan artifact marked pending approval. Does not execute ' +
+      'anything. Interactive checkpoints are not available from the tool; ' +
+      'use /ralplan --interactive for those.',
     promptSnippet:
       'Consensus planning loop that produces a reviewed plan artifact',
     promptGuidelines: [
-      'Use the ralplan tool when the user asks to plan, design, or scope non-trivial work before implementing, or says "ralplan".',
-      'After the ralplan tool returns, read the artifact and present it; do not start implementation without user approval.',
+      'Use the ralplan tool when the user asks to plan, design, or scope ' +
+        'non-trivial work before implementing, or says "ralplan".',
+      'After the ralplan tool returns, read the artifact and present it; ' +
+        'do not start implementation without user approval.',
     ],
     parameters: Type.Object({
       task: Type.String({ description: 'Task description to plan' }),
@@ -399,7 +425,9 @@ export default function spiralExtension(pi: ExtensionAPI) {
           content: [
             {
               type: 'text',
-              text: `ralplan not started, role models unavailable: ${errors.join('; ')}`,
+              text:
+                'ralplan not started, role models unavailable: ' +
+                `${errors.join('; ')}`,
             },
           ],
           details: { outcome: 'not_started' },
@@ -449,7 +477,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
 
   pi.registerCommand('ralph', {
     description:
-      'PRD-driven persistence loop: draft stories, implement + verify each, independent review, deslop pass',
+      'PRD-driven persistence loop: draft stories, implement + verify ' +
+      'each, independent review, deslop pass',
     handler: async (args, ctx) => {
       const parsed = parseRalphArgs(args);
       if (parsed.errors.length > 0) {
@@ -498,12 +527,16 @@ export default function spiralExtension(pi: ExtensionAPI) {
           onConfirmVerify: (commands) =>
             ctx.ui.confirm(
               'Ralph: run PRD-proposed regression commands?',
-              `The PRD planner proposes these commands; they will run in ${ctx.cwd} after every story:\n${commands.map((c) => `  ${c}`).join('\n')}\nSet ralph.verify in spiral.json to skip this question.`,
+              'The PRD planner proposes these commands; they will run in ' +
+                `${ctx.cwd} after every ` +
+                `story:\n${commands.map((c) => `  ${c}`).join('\n')}\nSet ` +
+                'ralph.verify in spiral.json to skip this question.',
             ),
           onConfirmDrift: (files) =>
             ctx.ui.confirm(
               'Ralph: run state was modified outside the loop',
-              `${files.join(', ')} no longer match integrity.json. Resume with the files as they are?`,
+              `${files.join(', ')} no longer match integrity.json. Resume ` +
+                'with the files as they are?',
             ),
           signal: controller.signal,
           onProgress: (progress) =>
@@ -550,13 +583,21 @@ export default function spiralExtension(pi: ExtensionAPI) {
     name: 'ralph',
     label: 'Ralph',
     description:
-      'Run the ralph persistence loop: draft a PRD of user stories with testable acceptance criteria (optionally from a ralplan artifact), implement and verify each story with an executor child, get an independent reviewer verdict, then a bounded deslop pass and regression re-run. Writes code in the working tree, never commits. State in .spiral/ralph/<runId>/.',
+      'Run the ralph persistence loop: draft a PRD of user stories with ' +
+      'testable acceptance criteria (optionally from a ralplan artifact), ' +
+      'implement and verify each story with an executor child, get an ' +
+      'independent reviewer verdict, then a bounded deslop pass and ' +
+      'regression re-run. Writes code in the working tree, never commits. ' +
+      'State in .spiral/ralph/<runId>/.',
     promptSnippet:
       'PRD-driven implementation loop with executor, reviewer and deslop pass',
     promptGuidelines: [
-      'Use the ralph tool when the user asks to implement an approved plan end to end, says "ralph", or wants guaranteed completion with verification.',
+      'Use the ralph tool when the user asks to implement an approved plan ' +
+        'end to end, says "ralph", or wants guaranteed completion with ' +
+        'verification.',
       'Prefer passing the ralplan artifact path as `plan` when one exists.',
-      'After the ralph tool returns, report the outcome and the changed files; do not commit unless the user asks.',
+      'After the ralph tool returns, report the outcome and the changed ' +
+        'files; do not commit unless the user asks.',
     ],
     parameters: Type.Object({
       task: Type.String({ description: 'Task description to implement' }),
@@ -612,7 +653,9 @@ export default function spiralExtension(pi: ExtensionAPI) {
           content: [
             {
               type: 'text',
-              text: `ralph not started, role models unavailable: ${errors.join('; ')}`,
+              text:
+                'ralph not started, role models unavailable: ' +
+                `${errors.join('; ')}`,
             },
           ],
           details: { outcome: 'not_started' },
@@ -656,7 +699,12 @@ export default function spiralExtension(pi: ExtensionAPI) {
     handler: async (_args, ctx) => {
       loaded = load(ctx);
       const text = [
-        `sources: ${loaded.sources.length > 0 ? loaded.sources.join(', ') : 'defaults only'}`,
+        'sources: ' +
+          `${
+            loaded.sources.length > 0
+              ? loaded.sources.join(', ')
+              : 'defaults only'
+          }`,
         `project trusted: ${ctx.isProjectTrusted()}`,
         loaded.fallback
           ? 'EFFECTIVE: built-in defaults (config invalid)'

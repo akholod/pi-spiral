@@ -120,6 +120,47 @@ const approve = (
   ...extra,
 });
 
+const numbered = (block: string): string[] =>
+  block
+    .split('\n')
+    .map((line) => /^\d+\. (.*)$/.exec(line)?.[1])
+    .filter((c): c is string => !!c);
+
+// Active criteria of the story in an executor task (review stories are
+// created by the loop, so the fake cannot know them up front).
+const activeCriteria = (task: string): string[] =>
+  numbered(task.split('**Acceptance criteria (active):**')[1] ?? '');
+
+// The reviewer task embeds the PRD; reconstruct enough of it to approve
+// every active criterion (including review stories) from the prompt text.
+const currentPrd = (task: string): Prd => {
+  const stories: Prd['userStories'] = [];
+  const sections = task.split(/^## (?=(?:US|RV)-\d+: )/m).slice(1);
+  for (const section of sections) {
+    const id = section.slice(0, section.indexOf(':'));
+    const block = section.split('**Acceptance criteria:**')[1] ?? '';
+    stories.push({
+      id,
+      title: id,
+      description: 'd',
+      acceptanceCriteria: numbered(block),
+      criterionAmendments: [],
+      priority: stories.length + 1,
+      passes: true,
+      reviewerVerified: false,
+      attempts: 1,
+      notes: [],
+    });
+  }
+  return {
+    project: 'p',
+    branchName: 'b',
+    description: '',
+    verify: [],
+    userStories: stories,
+  };
+};
+
 // Answers per agent; the executor answer may depend on the story and
 // attempt parsed from the node id (`ralph-<i>-executor-<story>`).
 interface FakeOptions {
@@ -181,47 +222,6 @@ const fakeDelegate = (options: FakeOptions = {}) => {
     }
   };
   return { delegateFn, calls, counts };
-};
-
-const numbered = (block: string): string[] =>
-  block
-    .split('\n')
-    .map((line) => /^\d+\. (.*)$/.exec(line)?.[1])
-    .filter((c): c is string => !!c);
-
-// Active criteria of the story in an executor task (review stories are
-// created by the loop, so the fake cannot know them up front).
-const activeCriteria = (task: string): string[] =>
-  numbered(task.split('**Acceptance criteria (active):**')[1] ?? '');
-
-// The reviewer task embeds the PRD; reconstruct enough of it to approve
-// every active criterion (including review stories) from the prompt text.
-const currentPrd = (task: string): Prd => {
-  const stories: Prd['userStories'] = [];
-  const sections = task.split(/^## (?=(?:US|RV)-\d+: )/m).slice(1);
-  for (const section of sections) {
-    const id = section.slice(0, section.indexOf(':'));
-    const block = section.split('**Acceptance criteria:**')[1] ?? '';
-    stories.push({
-      id,
-      title: id,
-      description: 'd',
-      acceptanceCriteria: numbered(block),
-      criterionAmendments: [],
-      priority: stories.length + 1,
-      passes: true,
-      reviewerVerified: false,
-      attempts: 1,
-      notes: [],
-    });
-  }
-  return {
-    project: 'p',
-    branchName: 'b',
-    description: '',
-    verify: [],
-    userStories: stories,
-  };
 };
 
 const config = (extra: Partial<RalphConfig> = {}): RalphConfig => ({
@@ -356,9 +356,14 @@ test('red regression before review re-opens the PRD; reviewer not asked', async 
   const cwd = tempCwd();
   // passes on every run except the third (the pre-review run)
   const counter = join(cwd, 'counter');
-  const verify = `n=$(cat ${counter} 2>/dev/null || echo 0); echo $((n+1)) > ${counter}; test $n -ne 2`;
+  const verify =
+    `n=$(cat ${counter} 2>/dev/null || echo 0); echo $((n+1)) > ${counter}; ` +
+    'test $n -ne 2';
   const fake = fakeDelegate();
-  const result = await run(fake, { cwd, config: config({ verify: [verify] }) });
+  const result = await run(fake, {
+    cwd,
+    config: config({ verify: [verify] }),
+  });
   assert.equal(result.outcome, 'completed', why(result));
   assert.equal(fake.counts.review, 1);
   const rv = result.prd.userStories.find((s) => s.id === 'RV-001');
@@ -496,29 +501,33 @@ test('orphan blocking findings become a review story', () => {
   ]);
 });
 
-test('APPROVE with uncovered, unverified or unsupported criteria is downgraded', () => {
-  const prd = currentPrd(
-    '## US-001: x\n**Acceptance criteria:**\n1. a\n2. b\n',
-  );
-  const partial = approve(prd);
-  partial.criteria[1].status = 'PARTIAL';
-  assert.equal(normalizeReview(prd, partial).verdict, 'REJECT');
-  const uncovered = approve(prd, { criteria: [] });
-  assert.match(
-    normalizeReview(prd, uncovered).summary,
-    /2 criteria not covered/,
-  );
-  const unsupported = approve(prd);
-  unsupported.criteria[0].evidence = '';
-  const normalized = normalizeReview(prd, unsupported);
-  assert.equal(normalized.verdict, 'REJECT');
-  assert.match(normalized.summary, /VERIFIED without evidence/);
-  // and the rejection re-opens that story
-  const reopened = applyRejection(prd, normalized, 1);
-  assert.deepEqual(reopened, ['US-001']);
-  assert.match(prd.userStories[0].notes[0], /VERIFIED without evidence/);
-  assert.equal(normalizeReview(prd, approve(prd)).verdict, 'APPROVE');
-});
+test(
+  'APPROVE with uncovered, unverified or ' +
+    'unsupported criteria is downgraded',
+  () => {
+    const prd = currentPrd(
+      '## US-001: x\n**Acceptance criteria:**\n1. a\n2. b\n',
+    );
+    const partial = approve(prd);
+    partial.criteria[1].status = 'PARTIAL';
+    assert.equal(normalizeReview(prd, partial).verdict, 'REJECT');
+    const uncovered = approve(prd, { criteria: [] });
+    assert.match(
+      normalizeReview(prd, uncovered).summary,
+      /2 criteria not covered/,
+    );
+    const unsupported = approve(prd);
+    unsupported.criteria[0].evidence = '';
+    const normalized = normalizeReview(prd, unsupported);
+    assert.equal(normalized.verdict, 'REJECT');
+    assert.match(normalized.summary, /VERIFIED without evidence/);
+    // and the rejection re-opens that story
+    const reopened = applyRejection(prd, normalized, 1);
+    assert.deepEqual(reopened, ['US-001']);
+    assert.match(prd.userStories[0].notes[0], /VERIFIED without evidence/);
+    assert.equal(normalizeReview(prd, approve(prd)).verdict, 'APPROVE');
+  },
+);
 
 test('review budget exhausted -> exhausted, stories still pass', async () => {
   const fake = fakeDelegate({
@@ -596,8 +605,9 @@ test('cleanup touching files outside the run scope fails the run', async () => {
       return done(story, CRITERIA[story], { filesChanged: [`${story}.ts`] });
     },
     onCall: (req) => {
-      if (req.agent === 'spiral-cleaner')
+      if (req.agent === 'spiral-cleaner') {
         writeFileSync(join(cwd, 'extra.ts'), 'y');
+      }
     },
   });
   const result = await run(fake, { cwd });
@@ -750,7 +760,8 @@ test('cancelled executor -> aborted', async () => {
 
 test('parseRalphArgs', () => {
   const parsed = parseRalphArgs(
-    '--no-deslop --reviewer-agent architect --plan .spiral/plans/x.md --executor a/b build it now',
+    '--no-deslop --reviewer-agent architect --plan .spiral/plans/x.md ' +
+      '--executor a/b build it now',
   );
   assert.equal(parsed.task, 'build it now');
   assert.equal(parsed.noDeslop, true);

@@ -134,8 +134,9 @@ test('roles run in order, critic never sees the architect review', async () => {
     ],
   );
   const critics = fake.calls.filter((call) => call.agent === 'spiral-critic');
-  for (const call of critics)
+  for (const call of critics) {
     assert.ok(!call.task.includes('ARCHITECT-SECRET'));
+  }
   // Architect and critic get the identical snapshot.
   assert.ok(fake.calls[1].task.includes('plan v1'));
   assert.ok(fake.calls[2].task.includes('plan v1'));
