@@ -4,3 +4,4 @@ dist/
 .omc/
 *.log
 .DS_Store
+.pi/tasks/

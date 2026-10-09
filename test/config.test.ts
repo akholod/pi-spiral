@@ -162,3 +162,23 @@ test('ralplan args parsing', () => {
   assert.deepEqual(bad.errors, ['--architect requires a provider/model id']);
   assert.equal(bad.interactive, true);
 });
+
+test('permissionAsks defaults to forward, deny is accepted', () => {
+  assert.equal(DEFAULT_CONFIG.permissionAsks, 'forward');
+  const cwd = tempProject();
+  assert.equal(load(cwd).config.permissionAsks, 'forward');
+  writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"permissionAsks": "deny"}');
+  const loaded = load(cwd);
+  assert.equal(loaded.fallback, false);
+  assert.equal(loaded.config.permissionAsks, 'deny');
+});
+
+test('permissionAsks rejects other values', () => {
+  const cwd = tempProject();
+  writeFileSync(join(cwd, '.pi', 'spiral.json'), '{"permissionAsks": "ask"}');
+  const loaded = load(cwd);
+  assert.equal(loaded.fallback, true);
+  assert.deepEqual(loaded.issues, [
+    { path: 'permissionAsks', message: 'must be forward | deny' },
+  ]);
+});

@@ -2,10 +2,11 @@
 //
 // Entry point. Responsibilities:
 //   - load and validate spiral.json (user + project), fail-closed
-//   - register role agents with pi-subagents (runtime registration)
+//   - delegate each role to a child agent through pi-agent-runner
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
 import { Type } from 'typebox';
+import type { ParentContext } from 'pi-agent-runner';
 import {
   CONFIG_DIR_NAME,
   type ExtensionAPI,
@@ -13,10 +14,6 @@ import {
   type ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
 import { loadConfig, type LoadedConfig } from '../src/config.ts';
-import {
-  registerRoleAgents,
-  type Disposable,
-} from '../src/subagents/register-agents.ts';
 import {
   applyModelOverrides,
   parseRalplanArgs,
@@ -202,7 +199,11 @@ const makeCheckpointHandler =
 
 export default function spiralExtension(pi: ExtensionAPI) {
   let loaded: LoadedConfig | null = null;
-  let agents: Disposable | null = null;
+  const parentOf = (ctx: ExtensionContext): ParentContext => ({
+    events: pi.events,
+    ctx,
+  });
+
   // Controllers of running /ralplan commands, so `/ralplan-cancel` can
   // stop them: a slash-command ctx.signal is usually undefined.
   const running = new Set<AbortController>();
@@ -277,22 +278,6 @@ export default function spiralExtension(pi: ExtensionAPI) {
   pi.on('session_start', (_event, ctx) => {
     loaded = load(ctx);
     reportIssues(ctx, loaded);
-    agents?.dispose();
-    agents = null;
-    // pi-subagents disables itself inside its own child processes, so there
-    // is no owner to register with; ralph/ralplan run from the parent only.
-    if (process.env.PI_SUBAGENT_CHILD === '1') return;
-    try {
-      agents = registerRoleAgents(pi);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      ctx.ui.notify(`[spiral] agents not registered: ${message}`, 'warning');
-    }
-  });
-
-  pi.on('session_shutdown', () => {
-    agents?.dispose();
-    agents = null;
   });
 
   pi.registerCommand('ralplan', {
@@ -331,7 +316,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       let result: RalplanResult;
       try {
         result = await runRalplan({
-          pi,
+          parent: parentOf(ctx),
+          permissionAsks: cfg.config.permissionAsks,
           config: cfg.config.ralplan,
           cwd: ctx.cwd,
           task: parsed.task,
@@ -435,7 +421,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
         };
       }
       const result = await runRalplan({
-        pi,
+        parent: parentOf(ctx),
+        permissionAsks: loaded.config.permissionAsks,
         config: loaded.config.ralplan,
         cwd: ctx.cwd,
         task: params.task,
@@ -515,7 +502,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       let result: RalphResult;
       try {
         result = await runRalph({
-          pi,
+          parent: parentOf(ctx),
+          permissionAsks: cfg.config.permissionAsks,
           config: cfg.config.ralph,
           cwd: ctx.cwd,
           task: parsed.task,
@@ -663,7 +651,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
         };
       }
       const result = await runRalph({
-        pi,
+        parent: parentOf(ctx),
+        permissionAsks: loaded.config.permissionAsks,
         config: loaded.config.ralph,
         cwd: ctx.cwd,
         task: params.task,

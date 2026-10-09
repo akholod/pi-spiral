@@ -2,7 +2,7 @@ import metarhia from 'eslint-config-metarhia';
 import tseslint from 'typescript-eslint';
 
 export default [
-  { ignores: ['node_modules/', '.spiral/', '.omc/'] },
+  { ignores: ['node_modules/', '.spiral/', '.omc/', '.pi/'] },
   ...metarhia,
   ...tseslint.configs.recommended,
   {

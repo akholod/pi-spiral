@@ -157,7 +157,7 @@ packages }` (allowlist by package name, see plan T03) plus the implicit
 
 ## Phase 2. Spiral on the runner
 
-### [ ] T12. Replace `delegate()` internals
+### [x] T12. Replace `delegate()` internals
 
 - **Where:** spiral `src/subagents/delegation.ts`
 - **Depends on:** T11
@@ -172,7 +172,7 @@ packages }` (allowlist by package name, see plan T03) plus the implicit
 - **Done when:** `npm test`, `npm run typecheck`, `npm run lint` pass;
   no import of the pi-subagents event names remains.
 
-### [ ] T13. Remove pi-subagents from Spiral
+### [x] T13. Remove pi-subagents from Spiral
 
 - **Where:** spiral
 - **Depends on:** T12

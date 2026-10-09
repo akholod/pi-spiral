@@ -9,13 +9,10 @@
 //   5. Interactive mode adds two user checkpoints: after the first draft and
 //      after critic approval (OMC steps 2 and 6).
 
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { RalplanConfig, RoleConfig } from '../config.ts';
+import type { ParentContext } from 'pi-agent-runner';
+import type { PermissionAsks, RalplanConfig, RoleConfig } from '../config.ts';
 import { delegate, type DelegationResponse } from '../subagents/delegation.ts';
-import {
-  ROLE_AGENT_NAMES,
-  type RoleName,
-} from '../subagents/register-agents.ts';
+import { ROLE_AGENT_NAMES, type RoleName } from '../subagents/roles.ts';
 import {
   addUsage,
   Cancelled,
@@ -49,11 +46,12 @@ export interface LoopProgress {
   detail?: string;
 }
 
-// Injected so tests can drive the loop without pi-subagents.
+// Injected so tests can drive the loop without real child agents.
 export type Delegate = typeof delegate;
 
 export interface RunLoopOptions {
-  pi: ExtensionAPI;
+  parent: ParentContext;
+  permissionAsks: PermissionAsks;
   config: RalplanConfig;
   request: RalplanRequest;
   signal?: AbortSignal;
@@ -121,7 +119,7 @@ const runRole = async (
 ): Promise<DelegationResponse> => {
   const run = options.delegateFn ?? delegate;
   options.onProgress?.({ iteration, role, phase: 'started' });
-  const response = await run(options.pi, {
+  const response = await run(options.parent, {
     ownerRunId: options.request.runId,
     nodeId: `ralplan-${iteration}-${role}${nodeSuffix}`,
     agent: ROLE_AGENT_NAMES[role],
@@ -134,6 +132,7 @@ const runRole = async (
       ? { kind: 'structured', schema: CRITIC_REVIEW_SCHEMA }
       : { kind: 'text' },
     signal: options.signal,
+    permissionAsks: options.permissionAsks,
   });
   addUsage(usage, response);
   options.onProgress?.({

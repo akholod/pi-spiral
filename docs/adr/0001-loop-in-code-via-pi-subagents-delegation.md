@@ -1,6 +1,7 @@
 # ADR 0001: Run the ralplan loop in extension code via pi-subagents delegation
 
-Status: accepted (scaffold), to be confirmed by the first end-to-end run
+Status: accepted; delegation mechanism superseded by ADR 0004 (the loop
+stays in code)
 Date: 2026-09-22
 
 ## Context

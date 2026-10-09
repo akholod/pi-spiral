@@ -49,7 +49,12 @@ export interface RalphConfig {
   };
 }
 
+// What a permission `ask` means inside child agents; see
+// spiral.config.example.jsonc.
+export type PermissionAsks = 'forward' | 'deny';
+
 export interface SpiralConfig {
+  permissionAsks: PermissionAsks;
   ralplan: RalplanConfig;
   ralph: RalphConfig;
 }
@@ -60,13 +65,14 @@ export interface SpiralConfig {
 export const INHERIT = 'inherit';
 
 // Hard limits. RALPLAN_MAX_ITERATIONS mirrors the OMC reference (5 rounds).
-// MAX_TIMEOUT_MS is the pi-subagents delegation API cap.
+// MAX_TIMEOUT_MS is setTimeout's maximum delay.
 export const RALPLAN_MAX_ITERATIONS = 5;
 export const RALPH_MAX_ITERATIONS = 100;
 export const RALPH_MAX_REVIEW_ATTEMPTS = 10;
 export const MAX_TIMEOUT_MS = 2_147_483_647;
 
 export const DEFAULT_CONFIG: SpiralConfig = {
+  permissionAsks: 'forward',
   ralplan: {
     maxIterations: RALPLAN_MAX_ITERATIONS,
     plansDir: '.spiral/plans',
@@ -292,6 +298,12 @@ const validateStateDir = (
 export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
   const issues: ConfigIssue[] = [];
   const { ralplan, ralph } = config;
+  if (!['forward', 'deny'].includes(config.permissionAsks)) {
+    issues.push({
+      path: 'permissionAsks',
+      message: 'must be forward | deny',
+    });
+  }
   const { maxIterations } = ralplan;
   if (!Number.isInteger(maxIterations) || maxIterations < 1) {
     issues.push({ path: 'ralplan.maxIterations', message: 'must be >= 1' });

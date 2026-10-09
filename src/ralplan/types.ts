@@ -62,7 +62,7 @@ const gateSchema = {
   properties: { pass: { type: 'boolean' }, reason: { type: 'string' } },
 };
 
-// JSON schema handed to pi-subagents as the critic's structured output.
+// JSON schema for the critic's structured output (submit_result).
 // Mirrors OMC critic Output_Format minus code-only sections.
 export const CRITIC_REVIEW_SCHEMA: Record<string, unknown> = {
   type: 'object',

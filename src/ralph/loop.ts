@@ -17,10 +17,10 @@
 //      rounds, MAX_STORY_ATTEMPTS consecutive failures of one story.
 //   7. The loop never commits; a moved HEAD is reported, not hidden.
 
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { RalphConfig, RoleConfig } from '../config.ts';
+import type { ParentContext } from 'pi-agent-runner';
+import type { PermissionAsks, RalphConfig, RoleConfig } from '../config.ts';
 import { delegate, type DelegationResponse } from '../subagents/delegation.ts';
-import { ROLE_AGENT_NAMES } from '../subagents/register-agents.ts';
+import { ROLE_AGENT_NAMES } from '../subagents/roles.ts';
 import {
   addUsage,
   Cancelled,
@@ -82,7 +82,8 @@ export interface RalphProgress {
 export type Delegate = typeof delegate;
 
 export interface RunLoopOptions {
-  pi: ExtensionAPI;
+  parent: ParentContext;
+  permissionAsks: PermissionAsks;
   config: RalphConfig;
   request: RalphRequest;
   store: RunStore;
@@ -285,7 +286,7 @@ export const runRalphLoop = async (
   ): Promise<DelegationResponse> => {
     const iteration = state.iterations;
     options.onProgress?.({ iteration, role, phase: 'started' });
-    const response = await run(options.pi, {
+    const response = await run(options.parent, {
       ownerRunId: request.runId,
       nodeId,
       agent,
@@ -296,6 +297,7 @@ export const runRalphLoop = async (
       timeoutMs: roleConfig.timeoutMs,
       result: schema ? { kind: 'structured', schema } : { kind: 'text' },
       signal: options.signal,
+      permissionAsks: options.permissionAsks,
     });
     addUsage(usage, response);
     options.onProgress?.({

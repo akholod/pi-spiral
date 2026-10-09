@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ParentContext } from 'pi-agent-runner';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { applyModelOverrides, runRalplan } from '../src/ralplan/index.ts';
 import { normalizeReview, type Delegate } from '../src/ralplan/loop.ts';
@@ -18,7 +18,10 @@ import type {
   DelegationResponse,
 } from '../src/subagents/delegation.ts';
 
-const pi = {} as ExtensionAPI;
+const parent = {
+  events: { emit() {}, on: () => () => {} },
+  ctx: {},
+} as unknown as ParentContext;
 
 const gate = (pass = true): GateResult => ({ pass, reason: 'r' });
 
@@ -66,7 +69,7 @@ const fakeDelegate = (options: FakeOptions) => {
   const calls: DelegateOptions[] = [];
   let planner = 0;
   let critic = 0;
-  const delegateFn: Delegate = async (_pi, request) => {
+  const delegateFn: Delegate = async (_parent, request) => {
     calls.push(request);
     const done = (
       result: DelegationResponse['result'],
@@ -83,6 +86,7 @@ const fakeDelegate = (options: FakeOptions) => {
         turns: 1,
         toolCalls: 2,
         durationMs: 1000,
+        waitedMs: 0,
       },
     });
     if (request.agent === 'spiral-planner') {
@@ -107,7 +111,8 @@ const run = (
   extra: Partial<Parameters<typeof runRalplan>[0]> = {},
 ) =>
   runRalplan({
-    pi,
+    parent,
+    permissionAsks: 'forward',
     config: DEFAULT_CONFIG.ralplan,
     cwd: mkdtempSync(join(tmpdir(), 'spiral-loop-')),
     task: 'do the thing',

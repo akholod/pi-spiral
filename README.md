@@ -9,7 +9,9 @@ Pi extension with two workflows ported from oh-my-claudecode:
   criteria, an executor per story, regression commands run by the loop,
   independent reviewer, deslop pass. Never commits.
 
-Requires `pi-subagents`.
+Child agents run in-process through
+[pi-agent-runner](https://github.com/akholod/pi-agent-runner); no other
+subagent package is needed.
 
 ## Install
 

@@ -14,7 +14,7 @@ model configurable.
 | `oh-my-claudecode/agents/{planner,architect,critic}.md`, `skills/plan/SKILL.md` | Role prompts ported in full to `agents/*.md` (critic: pre-commitment, assumptions, pre-mortem, dependency/ambiguity/feasibility/rollback audits, executor/stakeholder/skeptic perspectives, gap analysis, self-audit, realist check, adversarial escalation, four ralplan gates; architect: consensus addendum; planner: plan output format incl. changelog on revision). Critic verdict is structured JSON mirroring OMC's Output_Format (`CRITIC_REVIEW_SCHEMA`). |
 | `oh-my-claudecode/skills/ralph/SKILL.md`                                        | PRD/story model reserved for phase 2 (`src/ralph`).                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `oh-my-openagent` Prometheus / Momus / Metis                                    | Momus's "approval bias" (approve when a capable developer can execute; MINOR never blocks) is folded into the critic prompt. Metis (pre-planning intent classification) is folded into the planner's step 1. A separate Metis pass is a possible phase 3.                                                                                                                                                                                                           |
-| pi-subagents docs                                                               | Runtime agent registration event, structured delegation API with per-request `model` and `thinking`, structured output schemas.                                                                                                                                                                                                                                                                                                                                     |
+| Pi SDK (`createAgentSession`), pi-agent-runner                                  | In-process child sessions with per-request model and thinking, `submit_result` structured output, tool allowlists and guards (ADR 0004).                                                                                                                                                                                                                                                                                                                            |
 
 ## Key decision: the loop is code, not prompt
 
@@ -62,12 +62,12 @@ write .spiral/plans/<ts>-<slug>.md  (frontmatter: status: pending approval)
 pi.sendMessage summary (no turn trigger)  /  tool result
 ```
 
-Each `delegate` call is one foreground pi-subagents child, launched through
-the `prompt-template:subagent:request` event with the role's model and
-thinking level from config. Role agents are registered at `session_start`
-via `pi-subagents:runtime-agent-register:v1` with read-only tools
-(`read, grep, find, ls`; no shell, since tool restrictions are the only
-boundary and are not an OS sandbox).
+Each `delegate` call is one in-process child run through pi-agent-runner's
+`runAgent` (`src/subagents/delegation.ts`) with the role's model and
+thinking level from config. Roles come from a table in code
+(`src/subagents/roles.ts`): the role prompt replaces Pi's system prompt,
+and planner, architect and critic get read-only tools (`read, grep, find,
+ls`; no shell, since tool restrictions are not an OS sandbox). See ADR 0004.
 
 ## Config
 
@@ -89,29 +89,23 @@ version is written and the status says so.
 
 ## Open items before the first real run
 
-1. **Delegation from a command handler.** pi-subagents says delegation
-   "requires an active extension context. Emit requests from a supported
-   event callback". A slash-command handler and a tool `execute` should
-   qualify; verify with a one-round dry run and fall back to the
-   workflow-resource route (ADR 0001, option B) if not.
+1. **Delegation from a command handler.** Resolved: the runner creates
+   children from a command handler and from a tool `execute` (ADR 0004).
 2. **Identity.** `ownerRunId` is a UUID per ralplan run, node ids are
-   unique per (iteration, role, feedback round); responses are correlated
-   on the full tuple.
-3. **Structured output for the critic on GPT-Sol.** Confirm the codex
-   provider path supports `structured_output` in pi-subagents.
+   unique per (iteration, role, feedback round); they label progress and
+   responses.
+3. **Structured output for the critic on GPT-Sol.** Resolved: the runner's
+   `submit_result` works on openai-codex, opencode-go and claude-bridge.
 4. **`--interactive`.** Implemented for `/ralplan` (draft checkpoint:
    proceed / request changes / skip review; final checkpoint: approve /
    request changes / reject, OMC steps 2 and 6). The `ralplan` tool has no
    dialogs and ignores the flag. UI not yet exercised live.
-5. **Missing pi-subagents at delegation time.** Detected by a 30 s timeout
-   waiting for the `started` event (`src/subagents/delegation.ts`). Session
-   start already warns when agent registration fails.
-6. **Progress UX.** `ctx.ui.notify` per role is noisy; consider a widget
+5. **Progress UX.** `ctx.ui.notify` per role is noisy; consider a widget
    via `ctx.ui.setWidget`.
-7. **Cost.** Usage from every child (`DelegationResponse.usage`) is
+6. **Cost.** Usage from every child (`DelegationResponse.usage`) is
    aggregated into the summary and the artifact frontmatter; no budget
    cap yet.
-8. **Per-run role models.** `--planner|--architect|--critic <model>` on the
+7. **Per-run role models.** `--planner|--architect|--critic <model>` on the
    command, `models` on the tool.
 
 ## ralph

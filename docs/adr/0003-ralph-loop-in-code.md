@@ -15,8 +15,8 @@ skill. A large part of OMC's ralph code (criteria-revision digests, CAS
 writes, stale-PRD reconciliation, approval tags with request ids) exists
 to defend the PRD against a model that has write access to it.
 
-Spiral already runs ralplan as a TypeScript loop over pi-subagents
-children (ADR 0001). The same shape fits ralph better than a prompt loop.
+Spiral already runs ralplan as a TypeScript loop over child agents
+(ADR 0001; children run through pi-agent-runner since ADR 0004). The same shape fits ralph better than a prompt loop.
 
 ## Decision
 
@@ -32,7 +32,7 @@ children (ADR 0001). The same shape fits ralph better than a prompt loop.
    refuses drifted state unless the user explicitly adopts it. Revision
    digests per criterion (OMC) would not add prevention either, so they
    are not ported.
-2. **Roles** (all registered at runtime with pi-subagents):
+2. **Roles** (a role table in code, run through pi-agent-runner, ADR 0004):
    - `prd`: the existing read-only planner agent drafts the PRD as
      structured JSON (stories, criteria, `verify` commands). Generic
      criteria are rejected in code and the draft is sent back once.

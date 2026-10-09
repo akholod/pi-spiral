@@ -1,4 +1,4 @@
-// Shared handling of pi-subagents delegation responses: failure and
+// Shared handling of delegation responses: failure and
 // cancellation classification, result extraction and usage aggregation.
 // Both workflows (ralplan, ralph) build on these.
 
@@ -62,7 +62,7 @@ export class Cancelled extends Error {
   }
 }
 
-const CANCEL_STATUSES = new Set(['cancelled', 'interrupted']);
+const CANCEL_STATUSES = new Set(['cancelled']);
 
 export const failureDetail = (response: DelegationResponse): string =>
   response.status + (response.error ? `: ${response.error}` : '');

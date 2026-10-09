@@ -27,7 +27,7 @@ and OMC uses `omc.jsonc` with the same user/project layering.
   issue list. `/ralplan` refuses to start unless the user confirms running
   on defaults; the `ralplan` tool returns an error result. Limits:
   `ralplan.maxIterations` <= 5 (OMC reference), `timeoutMs` <= the
-  pi-subagents cap, dirs relative without `..`.
+  setTimeout maximum, dirs relative without `..`.
 - The project file is read only when `ctx.isProjectTrusted()`; the config
   dir name comes from pi's `CONFIG_DIR_NAME`.
 - Invalid model ids are not checked here; they surface as child launch
@@ -36,10 +36,10 @@ and OMC uses `omc.jsonc` with the same user/project layering.
 
 ## Alternatives
 
-- `subagents.agentOverrides.spiral-planner.model` in pi settings. Works for
-  runtime-registered agents and remains a valid override path, but keeps
-  workflow settings (iterations, plans dir, deliberate mode) elsewhere.
-  Spiral's explicit `model` per request wins over it.
+- `subagents.agentOverrides.spiral-planner.model` in pi settings. Worked
+  while roles were pi-subagents agents; since ADR 0004 it no longer
+  applies. It also kept workflow settings (iterations, plans dir,
+  deliberate mode) elsewhere.
 - A `spiral` key inside `.pi/settings.json`. Rejected to avoid coupling to
   pi's settings schema.
 

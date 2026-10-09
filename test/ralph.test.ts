@@ -11,7 +11,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
+import type { ParentContext } from 'pi-agent-runner';
 import { DEFAULT_CONFIG, type RalphConfig } from '../src/config.ts';
 import { parseRalphArgs, runRalph } from '../src/ralph/index.ts';
 import {
@@ -31,7 +31,10 @@ import type {
   DelegationResponse,
 } from '../src/subagents/delegation.ts';
 
-const pi = {} as ExtensionAPI;
+const parent = {
+  events: { emit() {}, on: () => () => {} },
+  ctx: {},
+} as unknown as ParentContext;
 
 const why = (result: { error?: string; note?: string }): string =>
   `${result.error ?? ''} ${result.note ?? ''}`;
@@ -175,7 +178,7 @@ interface FakeOptions {
 const fakeDelegate = (options: FakeOptions = {}) => {
   const calls: DelegateOptions[] = [];
   const counts: Record<string, number> = {};
-  const delegateFn: Delegate = async (_pi, request) => {
+  const delegateFn: Delegate = async (_parent, request) => {
     calls.push(request);
     options.onCall?.(request);
     const ok = (result: DelegationResponse['result']): DelegationResponse => ({
@@ -191,6 +194,7 @@ const fakeDelegate = (options: FakeOptions = {}) => {
         turns: 1,
         toolCalls: 1,
         durationMs: 5,
+        waitedMs: 0,
       },
     });
     const count = (key: string): number =>
@@ -236,7 +240,8 @@ const run = (
   extra: Partial<Parameters<typeof runRalph>[0]> = {},
 ) =>
   runRalph({
-    pi,
+    parent,
+    permissionAsks: 'forward',
     config: config(),
     cwd: tempCwd(),
     task: 'build the thing',

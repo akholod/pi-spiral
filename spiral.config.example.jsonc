@@ -10,6 +10,13 @@
 // recommended setup when the providers are available: Opus for planner and
 // architect (pi-claude-bridge), GPT-5.6 Sol for the critic (openai-codex).
 {
+  // What a permission `ask` means inside Spiral's child agents.
+  // forward (default): the dialog opens in this session and the role's
+  // timeout pauses while you answer.
+  // deny: asks are refused at once -- for unattended runs; allow rules
+  // still pass.
+  "permissionAsks": "forward",
+
   "ralplan": {
     // Planner -> architect -> critic rounds. Hard cap 5 (OMC reference);
     // higher values invalidate the file.
@@ -31,19 +38,19 @@
       "planner": {
         "model": "claude-bridge/claude-opus-5",
         "thinking": "high",
-        "timeoutMs": 900000
+        "timeoutMs": 900000,
       },
       "architect": {
         "model": "claude-bridge/claude-opus-5",
         "thinking": "high",
-        "timeoutMs": 600000
+        "timeoutMs": 600000,
       },
       "critic": {
         "model": "openai-codex/gpt-5.6-sol",
         "thinking": "high",
-        "timeoutMs": 600000
-      }
-    }
+        "timeoutMs": 600000,
+      },
+    },
   },
 
   "ralph": {
@@ -77,9 +84,15 @@
     // the executor gives an independent second opinion.
     "roles": {
       "prd": { "model": "claude-bridge/claude-opus-5", "thinking": "high" },
-      "executor": { "model": "claude-bridge/claude-opus-5", "thinking": "medium" },
+      "executor": {
+        "model": "claude-bridge/claude-opus-5",
+        "thinking": "medium",
+      },
       "reviewer": { "model": "openai-codex/gpt-6-sol", "thinking": "high" },
-      "cleaner": { "model": "claude-bridge/claude-opus-5", "thinking": "medium" }
-    }
-  }
+      "cleaner": {
+        "model": "claude-bridge/claude-opus-5",
+        "thinking": "medium",
+      },
+    },
+  },
 }

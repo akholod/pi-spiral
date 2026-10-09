@@ -1,6 +1,6 @@
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { RalplanConfig } from '../config.ts';
-import type { RoleName } from '../subagents/register-agents.ts';
+import type { ParentContext } from 'pi-agent-runner';
+import type { PermissionAsks, RalplanConfig } from '../config.ts';
+import type { RoleName } from '../subagents/roles.ts';
 import {
   buildArtifactPath,
   renderArtifact,
@@ -14,7 +14,8 @@ import type { CheckpointHandler, RalplanResult } from './types.ts';
 export type RoleModelOverrides = Partial<Record<RoleName, string>>;
 
 export interface RalplanOptions {
-  pi: ExtensionAPI;
+  parent: ParentContext;
+  permissionAsks: PermissionAsks;
   config: RalplanConfig;
   cwd: string;
   task: string;
@@ -56,7 +57,8 @@ export const runRalplan = async (
     interactive: options.interactive === true && !!options.onCheckpoint,
   };
   const partial = await runRalplanLoop({
-    pi: options.pi,
+    parent: options.parent,
+    permissionAsks: options.permissionAsks,
     config,
     request,
     signal: options.signal,

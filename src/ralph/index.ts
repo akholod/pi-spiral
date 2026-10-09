@@ -3,10 +3,10 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { execFile } from 'node:child_process';
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent';
-import type { RalphConfig, ReviewerAgent } from '../config.ts';
+import type { ParentContext } from 'pi-agent-runner';
+import type { PermissionAsks, RalphConfig, ReviewerAgent } from '../config.ts';
 import { delegate } from '../subagents/delegation.ts';
-import { ROLE_AGENT_NAMES } from '../subagents/register-agents.ts';
+import { ROLE_AGENT_NAMES } from '../subagents/roles.ts';
 import {
   addUsage,
   Cancelled,
@@ -41,7 +41,8 @@ export type RalphRoleName = keyof RalphConfig['roles'];
 export type RalphModelOverrides = Partial<Record<RalphRoleName, string>>;
 
 export interface RalphOptions {
-  pi: ExtensionAPI;
+  parent: ParentContext;
+  permissionAsks: PermissionAsks;
   config: RalphConfig;
   cwd: string;
   task: string;
@@ -109,7 +110,7 @@ const draftPrd = async (
   let problems: string[] = [];
   for (let attempt = 1; attempt <= MAX_DRAFT_ATTEMPTS; attempt++) {
     options.onProgress?.({ iteration: 0, role: 'prd', phase: 'started' });
-    const response = await run(options.pi, {
+    const response = await run(options.parent, {
       ownerRunId: request.runId,
       nodeId: `ralph-prd-${attempt}`,
       agent: ROLE_AGENT_NAMES.planner,
@@ -120,6 +121,7 @@ const draftPrd = async (
       timeoutMs: config.roles.prd.timeoutMs,
       result: { kind: 'structured', schema: PRD_DRAFT_SCHEMA },
       signal: options.signal,
+      permissionAsks: options.permissionAsks,
     });
     addUsage(usage, response);
     options.onProgress?.({
@@ -267,7 +269,8 @@ const resumeRun = async (
   request.deslop = state.deslop && request.deslop;
   state.outcome = 'running';
   return runRalphLoop({
-    pi: options.pi,
+    parent: options.parent,
+    permissionAsks: options.permissionAsks,
     config,
     request,
     store,
@@ -342,7 +345,8 @@ const startRun = async (
   store.persist(drafted.prd, state);
 
   const result = await runRalphLoop({
-    pi: options.pi,
+    parent: options.parent,
+    permissionAsks: options.permissionAsks,
     config,
     request,
     store,
