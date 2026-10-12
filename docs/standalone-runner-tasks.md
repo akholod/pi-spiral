@@ -213,6 +213,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T16. Risk-ordered stories and `repoQualityClass`
 
+Issue: https://github.com/akholod/pi-spiral/issues/1
+
 - **Where:** spiral `src/ralph/prompts.ts`, `prd.ts`
 - **Work:** PRD prompt orders stories by risk (architecture, integration,
   spikes, standard, polish last); PRD field `repoQualityClass`
@@ -223,6 +225,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T17. Closeout, incident item, token budget
 
+Issue: https://github.com/akholod/pi-spiral/issues/2
+
 - **Where:** spiral `src/ralph/*`
 - **Work:** on every terminal outcome append at most three factual lines
   to `.spiral/notes/ralph/problems.md` (blockers also to `issues.md`);
@@ -232,6 +236,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 - **Done when:** tests for each outcome; empty closeout writes nothing.
 
 ### [ ] T18. ralph acceptance checks
+
+Issue: https://github.com/akholod/pi-spiral/issues/3
 
 - **Where:** spiral tests + one live run
 - **Depends on:** T13, T15, T16, T17
@@ -244,6 +250,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T19. Council on the runner
 
+Issue: https://github.com/akholod/pi-opium/issues/1
+
 - **Where:** opium `src/council.ts`, `src/delegation.ts`
 - **Depends on:** T11
 - **Work:** seats in parallel through `runAgent` with read-only tools;
@@ -251,6 +259,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 - **Done when:** existing council tests pass against the new runner fake.
 
 ### [ ] T20. Seat model fallback and empty-answer retry
+
+Issue: https://github.com/akholod/pi-opium/issues/2
 
 - **Where:** opium
 - **Depends on:** T19
@@ -262,6 +272,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 ## Phase 4. Opium model-facing tools
 
 ### [ ] T21. Agent definitions
+
+Issue: https://github.com/akholod/pi-opium/issues/3
 
 - **Where:** opium `src/agents.ts` (new)
 - **Depends on:** T11
@@ -275,6 +287,8 @@ Independent of the runner; can run in parallel with phases 0–2.
   with a clear error.
 
 ### [ ] T22. Run registry
+
+Issue: https://github.com/akholod/pi-opium/issues/4
 
 - **Where:** opium
 - **Depends on:** T21
@@ -290,6 +304,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T23. Tools
 
+Issue: https://github.com/akholod/pi-opium/issues/5
+
 - **Where:** opium
 - **Depends on:** T22
 - **Work:** `agent({ agent, task, background?, resume? })`,
@@ -301,6 +317,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T24. Completion delivery
 
+Issue: https://github.com/akholod/pi-opium/issues/6
+
 - **Where:** opium
 - **Depends on:** T23
 - **Work:** on terminal state call `pi.sendMessage` with `triggerTurn`
@@ -311,6 +329,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T25. Orchestrator prompt and child marker
 
+Issue: https://github.com/akholod/pi-opium/issues/7
+
 - **Where:** opium `src/prompt.ts`, `extensions/opium.ts`, `README.md`
 - **Depends on:** T23
 - **Work:** rewrite the delegation section for the new tools; roster from
@@ -320,6 +340,8 @@ Independent of the runner; can run in parallel with phases 0–2.
   the prompt.
 
 ### [ ] T26. Opium acceptance checks
+
+Issue: https://github.com/akholod/pi-opium/issues/8
 
 - **Where:** opium tests + live session
 - **Depends on:** T20, T24, T25
@@ -332,6 +354,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T27. Failure-path tests
 
+Issue: https://github.com/akholod/pi-agent-runner/issues/1
+
 - **Where:** runner, spiral, opium
 - **Depends on:** T14, T18, T26
 - **Work:** cancellation races (startup, tool, structured output),
@@ -341,6 +365,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T28. Live check without pi-subagents
 
+Issue: https://github.com/akholod/pi-opium/issues/9
+
 - **Where:** local Pi settings
 - **Depends on:** T27
 - **Work:** remove `npm:pi-subagents` from `~/.pi/agent/settings.json`,
@@ -349,6 +375,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 - **Done when:** both configurations work; findings recorded.
 
 ### [ ] T29. Optional subprocess backend
+
+Issue: https://github.com/akholod/pi-agent-runner/issues/2
 
 - **Where:** runner
 - **Depends on:** T28
@@ -361,6 +389,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T30. Inventory of slim hooks and tools
 
+Issue: https://github.com/akholod/pi-opium/issues/10
+
 - **Where:** docs
 - **Work:** for every directory in `oh-my-opencode-slim/src/hooks` and
   `src/tools`, record what it does, whether it applies to Pi, whether Pi
@@ -369,6 +399,8 @@ Independent of the runner; can run in parallel with phases 0–2.
   adjusted.
 
 ### [ ] T31. Job board and idle wake
+
+Issue: https://github.com/akholod/pi-opium/issues/11
 
 - **Where:** opium
 - **Depends on:** T24, T30
@@ -380,6 +412,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T32. Phase reminder and council mode
 
+Issue: https://github.com/akholod/pi-opium/issues/12
+
 - **Where:** opium
 - **Depends on:** T30
 - **Work:** port the phase reminder and council-mode instruction
@@ -388,6 +422,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T33. JSON error recovery and tool loop guard
 
+Issue: https://github.com/akholod/pi-opium/issues/13
+
 - **Where:** opium
 - **Depends on:** T30
 - **Work:** recover from malformed tool arguments the way slim does;
@@ -395,6 +431,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 - **Done when:** tests for both.
 
 ### [ ] T34. Remaining portable hooks
+
+Issue: https://github.com/akholod/pi-opium/issues/14
 
 - **Where:** opium
 - **Depends on:** T30
@@ -405,6 +443,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 
 ### [ ] T35. Model presets
 
+Issue: https://github.com/akholod/pi-opium/issues/15
+
 - **Where:** opium
 - **Depends on:** T21
 - **Work:** named presets of per-agent models and thinking levels in
@@ -412,6 +452,8 @@ Independent of the runner; can run in parallel with phases 0–2.
 - **Done when:** switching changes the models of new runs only.
 
 ### [ ] T36. Live view of running children
+
+Issue: https://github.com/akholod/pi-opium/issues/16
 
 - **Where:** opium (designer)
 - **Depends on:** T22
@@ -422,6 +464,8 @@ Independent of the runner; can run in parallel with phases 0–2.
   parallel runs.
 
 ### [ ] T37. Companion window
+
+Issue: https://github.com/akholod/pi-opium/issues/17
 
 - **Where:** docs
 - **Depends on:** T30
