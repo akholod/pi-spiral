@@ -182,3 +182,17 @@ test('permissionAsks rejects other values', () => {
     { path: 'permissionAsks', message: 'must be forward | deny' },
   ]);
 });
+
+test('ralph.budgetTokens: int >= 0, default off', () => {
+  assert.equal(DEFAULT_CONFIG.ralph.budgetTokens, 0);
+  const merge = (budgetTokens: unknown) =>
+    validateConfig(deepMerge(DEFAULT_CONFIG, { ralph: { budgetTokens } }));
+  assert.deepEqual(merge(500000), []);
+  for (const bad of [-1, 1.5, '100', null, Number.NaN]) {
+    assert.deepEqual(
+      merge(bad).map((issue) => issue.path),
+      ['ralph.budgetTokens'],
+      String(bad),
+    );
+  }
+});

@@ -223,7 +223,7 @@ Issue: https://github.com/akholod/pi-spiral/issues/1
   adds a backward-compatibility criterion for public surfaces.
 - **Done when:** schema, normalizer and survival tests pass.
 
-### [ ] T17. Closeout, incident item, token budget
+### [x] T17. Closeout, incident item, token budget
 
 Issue: https://github.com/akholod/pi-spiral/issues/2
 

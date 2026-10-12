@@ -40,6 +40,9 @@ export interface RalphConfig {
   // regression commands the loop runs itself; empty = use the PRD's list
   verify: string[];
   verifyTimeoutMs: number;
+  // opt-in token budget for one run (input + output of all children,
+  // across resumes); 0 = off
+  budgetTokens: number;
   roles: {
     // drafts prd.json (planner agent, read-only)
     prd: RoleConfig;
@@ -91,6 +94,7 @@ export const DEFAULT_CONFIG: SpiralConfig = {
     maxReviewAttempts: 3,
     verify: [],
     verifyTimeoutMs: 600_000,
+    budgetTokens: 0,
     roles: {
       prd: { model: INHERIT, thinking: 'high', timeoutMs: 900_000 },
       executor: { model: INHERIT, thinking: 'medium', timeoutMs: 1_800_000 },
@@ -370,6 +374,12 @@ export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
     issues.push({
       path: 'ralph.verifyTimeoutMs',
       message: `must be a positive int <= ${MAX_TIMEOUT_MS}`,
+    });
+  }
+  if (!Number.isSafeInteger(ralph.budgetTokens) || ralph.budgetTokens < 0) {
+    issues.push({
+      path: 'ralph.budgetTokens',
+      message: 'must be an int >= 0 (0 = off)',
     });
   }
   validateRole('ralph.roles.prd', ralph.roles.prd, issues);

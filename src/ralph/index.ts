@@ -344,6 +344,7 @@ const startRun = async (
     patterns: [],
     entries: [],
     reviews: [],
+    tokensSpent: usage.input + usage.output,
   };
   const store = RunStore.create(runDir);
   store.persist(drafted.prd, state);

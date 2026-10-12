@@ -17,6 +17,7 @@
 //      rounds, MAX_STORY_ATTEMPTS consecutive failures of one story.
 //   7. The loop never commits; a moved HEAD is reported, not hidden.
 
+import { dirname } from 'node:path';
 import type { ParentContext } from 'pi-agent-runner';
 import type { PermissionAsks, RalphConfig, RoleConfig } from '../config.ts';
 import { delegate, type DelegationResponse } from '../subagents/delegation.ts';
@@ -29,6 +30,7 @@ import {
   structuredOf,
   textOf,
 } from '../subagents/responses.ts';
+import { appendNotes, closeoutNotes } from './closeout.ts';
 import {
   diffBaseline,
   fingerprintAll,
@@ -103,6 +105,8 @@ export interface RunLoopOptions {
 // potential fundamental problem". We stop instead of burning budget.
 export const MAX_STORY_ATTEMPTS = 3;
 export const MAX_REGRESSION_FIXES = 2;
+// share of ralph.budgetTokens at which no new story, review or cleanup starts
+export const BUDGET_STOP_SHARE = 0.9;
 
 const BLOCKING = new Set(['CRITICAL', 'MAJOR']);
 
@@ -257,6 +261,9 @@ export const runRalphLoop = async (
   let deslop: RalphResult['deslop'] = 'skipped';
   if (request.deslop) deslop = state.cleanupDone ? 'done' : 'not-reached';
   let lastVerify: CommandResult[] | null = null;
+  let budgetStopped = false;
+  // a halt kind from an earlier stop of a resumed run no longer applies
+  delete state.haltKind;
 
   const persist = (): void => store.persist(prd, state);
 
@@ -278,6 +285,36 @@ export const runRalphLoop = async (
       };
       outcome = 'failed';
     }
+    // closeout notes go after the final persist; failing to write them must
+    // not change the outcome
+    let notes: RalphResult['notes'];
+    try {
+      notes = appendNotes(
+        dirname(store.runDir),
+        closeoutNotes({
+          outcome,
+          runId: request.runId,
+          runDir: store.runDir,
+          prd,
+          state,
+          error: extra.error,
+          budget: budgetStopped
+            ? { spent: state.tokensSpent, limit: config.budgetTokens }
+            : undefined,
+          failingCommands: (lastVerify ?? [])
+            .filter((r) => !r.ok)
+            .map((r) => r.command),
+        }),
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      extra = {
+        ...extra,
+        note: [extra.note, `closeout notes not written: ${message}`]
+          .filter(Boolean)
+          .join('; '),
+      };
+    }
     return {
       outcome,
       runId: request.runId,
@@ -292,8 +329,25 @@ export const runRalphLoop = async (
       baselineWarnings: state.baselineWarnings,
       headChanged,
       usage,
+      ...(notes ? { notes } : {}),
       ...extra,
     };
+  };
+
+  // Budget gate at an iteration boundary: stops resumably at 90% of
+  // ralph.budgetTokens. Exhaustion is a stop condition, not a failure.
+  const budgetStop = (): Promise<RalphResult> | null => {
+    const limit = config.budgetTokens;
+    if (limit <= 0 || state.tokensSpent < BUDGET_STOP_SHARE * limit) {
+      return null;
+    }
+    budgetStopped = true;
+    return finish('exhausted', {
+      note:
+        `token budget: ${state.tokensSpent} of ${limit} tokens used ` +
+        `(>= 90%); resume with /ralph --resume ${request.runId} after ` +
+        'raising ralph.budgetTokens or to continue',
+    });
   };
 
   const child = async (
@@ -320,6 +374,8 @@ export const runRalphLoop = async (
       permissionAsks: options.permissionAsks,
     });
     addUsage(usage, response);
+    state.tokensSpent +=
+      (response.usage?.input ?? 0) + (response.usage?.output ?? 0);
     options.onProgress?.({
       iteration,
       role,
@@ -539,6 +595,7 @@ export const runRalphLoop = async (
         learnings: report.learnings,
       });
       state.blockers = blockers;
+      state.haltKind = 'user-input';
       return 'blocked';
     }
 
@@ -576,6 +633,7 @@ export const runRalphLoop = async (
       state.blockers =
         `${story.id} failed ${story.attempts} attempts: ` +
         `${problems.join('; ')}`;
+      state.haltKind = 'three-strike';
       return 'blocked';
     }
     return null;
@@ -707,6 +765,8 @@ export const runRalphLoop = async (
     for (;;) {
       if (options.signal?.aborted) return finish('aborted');
       const status = prdStatus(prd);
+      const stopped = budgetStop();
+      if (stopped) return stopped;
 
       if (status.next) {
         state.phase = 'stories';
@@ -771,6 +831,8 @@ export const runRalphLoop = async (
         deslop = 'skipped';
         return finish('completed');
       }
+      const beforeCleanup = budgetStop();
+      if (beforeCleanup) return beforeCleanup;
       state.phase = 'cleanup';
       const cleaned = await cleanup();
       state.cleanupDone = true;
@@ -788,6 +850,7 @@ export const runRalphLoop = async (
       }
       if (!cleaned.ok) {
         deslop = 'failed';
+        state.haltKind = 'verify';
         return finish('failed', {
           error: 'post-cleanup regression commands still fail',
           note:

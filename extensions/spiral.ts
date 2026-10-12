@@ -144,6 +144,12 @@ const summarizeRalph = (result: RalphResult): string => {
       `pre-existing failures (present before the run, not fixed): ${warnings}`,
     );
   }
+  if (result.notes && result.notes.problems + result.notes.issues > 0) {
+    lines.push(
+      `notes: ${result.notes.problems + result.notes.issues} line(s) ` +
+        `appended to ${result.notes.dir}`,
+    );
+  }
   lines.push(`deslop: ${result.deslop}`);
   lines.push(
     'changed files: ' +

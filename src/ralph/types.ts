@@ -210,6 +210,8 @@ export interface RalphResult {
   // true when HEAD moved during the run (a child committed)
   headChanged: boolean;
   usage: UsageTotals;
+  // closeout lines appended to the project notes (see closeout.ts)
+  notes?: { problems: number; issues: number; dir: string };
   note?: string;
   error?: string;
 }

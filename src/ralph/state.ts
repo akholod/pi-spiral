@@ -114,7 +114,14 @@ export interface RunState {
   reviews: ReviewReport[];
   // why the run stopped with `blocked`, if it did
   blockers?: string;
+  // what ended the run: the three-strike rule, an executor asking for user
+  // input, or regression commands that cannot pass; drives the closeout
+  haltKind?: HaltKind;
+  // input + output tokens of every child so far, across resumes
+  tokensSpent: number;
 }
+
+export type HaltKind = 'three-strike' | 'user-input' | 'verify';
 
 const writeAtomic = (path: string, content: string): void => {
   const tmp = `${path}.tmp-${process.pid}-${Date.now()}`;
@@ -154,6 +161,7 @@ const OUTCOMES = new Set([
   'aborted',
   'failed',
 ]);
+const HALT_KINDS = new Set(['three-strike', 'user-input', 'verify']);
 const PHASES = new Set(['stories', 'review', 'cleanup', 'done']);
 const VERIFICATIONS = new Set(['passed', 'baseline', 'failed', 'none']);
 const ENTRY_OUTCOMES = new Set([
@@ -223,7 +231,10 @@ export const normalizeRun = (raw: unknown): RunState | null => {
     !isStringArray(r.patterns) ||
     !Array.isArray(r.entries) ||
     !Array.isArray(r.reviews) ||
-    (r.blockers !== undefined && typeof r.blockers !== 'string')
+    (r.blockers !== undefined && typeof r.blockers !== 'string') ||
+    (r.haltKind !== undefined && !HALT_KINDS.has(r.haltKind as string)) ||
+    (r.tokensSpent !== undefined &&
+      !(Number.isFinite(r.tokensSpent) && (r.tokensSpent as number) >= 0))
   ) {
     return null;
   }
@@ -252,6 +263,8 @@ export const normalizeRun = (raw: unknown): RunState | null => {
     entries: entries as ProgressEntry[],
     reviews: r.reviews as ReviewReport[],
     ...(r.blockers ? { blockers: r.blockers as string } : {}),
+    ...(r.haltKind ? { haltKind: r.haltKind as HaltKind } : {}),
+    tokensSpent: (r.tokensSpent as number | undefined) ?? 0,
   };
 };
 

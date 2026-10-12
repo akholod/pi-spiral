@@ -876,3 +876,113 @@ test('parseRalphArgs', () => {
   assert.ok(parseRalphArgs('--reviewer-agent bogus x').errors.length > 0);
   assert.ok(parseRalphArgs('--plan').errors.length > 0);
 });
+
+const notesOf = (runDir: string, file: string): string =>
+  join(runDir, '..', 'notes', file);
+
+test('three-strike halt appends a problem line and an incident', async () => {
+  const fake = fakeDelegate({
+    executor: (story) =>
+      story === 'US-001'
+        ? done(story, ['f() returns 1'])
+        : done(story, CRITERIA[story]),
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'blocked');
+  assert.deepEqual(result.notes?.dir, join(result.runDir, '..', 'notes'));
+  const problems = readFileSync(notesOf(result.runDir, 'problems.md'), 'utf8');
+  assert.match(problems, /blocked: US-001 after 3 attempt\(s\): US-001 failed/);
+  assert.match(problems, /retries: US-001 x3/);
+  const issues = readFileSync(notesOf(result.runDir, 'issues.md'), 'utf8');
+  assert.match(issues, /INCIDENT US-001 failed 3 attempts/);
+  assert.match(issues, new RegExp(`reopen: /ralph --resume ${result.runId}`));
+});
+
+test('executor-reported block writes a blocker, no incident', async () => {
+  const fake = fakeDelegate({
+    executor: (story) =>
+      done(story, [], { status: 'blocked', blockers: ['need API key'] }),
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'blocked');
+  const issues = readFileSync(notesOf(result.runDir, 'issues.md'), 'utf8');
+  assert.match(issues, /blocked: need API key \| reopen: \/ralph --resume/);
+  assert.doesNotMatch(issues, /INCIDENT/);
+});
+
+test('a clean run leaves no notes', async () => {
+  const result = await run(fakeDelegate());
+  assert.equal(result.outcome, 'completed', why(result));
+  assert.equal(result.notes?.problems, 0);
+  assert.equal(existsSync(notesOf(result.runDir, 'problems.md')), false);
+  assert.equal(existsSync(notesOf(result.runDir, 'issues.md')), false);
+});
+
+test('post-cleanup verify failure is an incident', async () => {
+  const cwd = tempCwd();
+  const flag = join(cwd, 'cleaned.flag');
+  const fake = fakeDelegate({
+    onCall: (req) => {
+      if (req.agent === 'spiral-cleaner') writeFileSync(flag, '');
+    },
+  });
+  const verify = `test ! -e ${flag} || (echo "FAIL x.test.js"; exit 1)`;
+  const result = await run(fake, { cwd, config: config({ verify: [verify] }) });
+  assert.equal(result.outcome, 'failed');
+  const issues = readFileSync(notesOf(result.runDir, 'issues.md'), 'utf8');
+  assert.match(issues, /INCIDENT post-cleanup regression commands still fail/);
+  assert.match(issues, /last verify: test ! -e/);
+});
+
+test('token budget: stops at 90%, resumes, spend counts across resume', async () => {
+  const cwd = tempCwd();
+  // 11 tokens per child; planner + two executors = 33 >= 0.9 * 30
+  const stopped = await run(fakeDelegate(), {
+    cwd,
+    config: config({ budgetTokens: 30 }),
+  });
+  assert.equal(stopped.outcome, 'exhausted');
+  assert.match(stopped.note ?? '', /token budget: 33 of 30 tokens used/);
+  assert.match(stopped.note ?? '', /--resume/);
+  const saved = JSON.parse(
+    readFileSync(join(stopped.runDir, 'run.json'), 'utf8'),
+  );
+  assert.equal(saved.tokensSpent, 33);
+  const problems = readFileSync(notesOf(stopped.runDir, 'problems.md'), 'utf8');
+  assert.match(problems, /exhausted: stopped by token budget: 33\/30 tokens/);
+
+  // still over budget: the resumed run stops before starting any child
+  const again = fakeDelegate();
+  const same = await run(again, {
+    cwd,
+    task: '',
+    resume: stopped.runId,
+    config: config({ budgetTokens: 30 }),
+  });
+  assert.equal(same.outcome, 'exhausted');
+  assert.equal(again.calls.length, 0);
+
+  const resumed = fakeDelegate();
+  const done2 = await run(resumed, {
+    cwd,
+    task: '',
+    resume: stopped.runId,
+    config: config({ budgetTokens: 1000 }),
+  });
+  assert.equal(done2.outcome, 'completed', why(done2));
+  assert.deepEqual(
+    resumed.calls.map((c) => c.agent),
+    ['spiral-critic', 'spiral-cleaner'],
+  );
+  const final = JSON.parse(
+    readFileSync(join(done2.runDir, 'run.json'), 'utf8'),
+  );
+  assert.equal(final.tokensSpent, 55);
+});
+
+test('budget 0 never stops a run', async () => {
+  const result = await run(fakeDelegate(), {
+    config: config({ budgetTokens: 0 }),
+  });
+  assert.equal(result.outcome, 'completed', why(result));
+});

@@ -78,6 +78,11 @@
     "verify": ["npm test", "npm run typecheck"],
     "verifyTimeoutMs": 600000,
 
+    // Opt-in token budget for one ralph run (input + output tokens of all
+    // children, across resumes). At 90% the loop starts no new story,
+    // review or cleanup and stops resumably; 0 turns it off.
+    "budgetTokens": 0,
+
     // prd: drafts prd.json (planner agent, read-only).
     // executor / cleaner: writers with pi's normal tools including a shell.
     // reviewer: read-only critic or architect; a different provider than
