@@ -522,3 +522,55 @@ Acceptance checks:
 - Explorer has codegraph, librarian has web search, councillors have only
   read-only tools, the council synthesizer has none.
 - No Opium orchestrator prompt is injected into any child.
+
+## Inventory of slim hooks and tools (T30, 2026-10-12)
+
+Source: `oh-my-opencode-slim` HEAD `eb99df0f`, every directory in
+`src/hooks`, the top-level hook helpers, and every tool in `src/tools`.
+"Covered" means Pi, Opium (after T19–T28) or an installed package already
+does it. Pi's built-in tools are `read`, `bash`, `edit`, `write`, `grep`,
+`find`, `ls` (no `apply_patch`).
+
+### Hooks
+
+| slim                   | What it does                                                                                                                     | Pi mechanism                        | Decision                                                                                       |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `orchestrator-wake`    | Nudges an idle orchestrator while todos or background runs are unfinished; continuous-idle check, 2-wake no-progress cap         | `agent_end` + timer, `sendMessage`  | Port, T31                                                                                      |
+| `task-session-manager` | Job board of child runs injected into orchestrator turns; user-wait gate for continuation                                        | `context`, run registry             | Port the board and the gate, T31; lifecycle is already Opium's registry                        |
+| `phase-reminder`       | Tagged workflow-phase reminder appended to eligible orchestrator user messages, cache-stable                                     | `context`                           | Port, T32                                                                                      |
+| `council-inject`       | Council-mode instruction block when an orchestrator message asks for council/consensus (code stripped, slash commands ignored)   | `context`                           | Port, T32                                                                                      |
+| `json-error-recovery`  | Appends a corrective note to tool output that shows malformed JSON args; excludes bash/read/glob/webfetch; one marker per output | `tool_result`                       | Port, T33                                                                                      |
+| `tool-loop-guard`      | Identical call + identical result: warn at 3, block read-only calls at 5; wait tools warn at 2; task tools exempt                | `tool_call`, `tool_result`, `input` | Port, T33                                                                                      |
+| `absolute-path-rescue` | Repairs a wrong absolute path for read/list/glob/grep on ENOENT when exactly one workspace candidate exists                      | `tool_call` (mutate input)          | Port, T34 (S), together with `search-path-guard`                                               |
+| `search-path-guard`    | Fails fast on a missing grep/glob search path                                                                                    | `tool_call` (block with reason)     | Port, T34 (S)                                                                                  |
+| `reflect`              | `/reflect [--last N]` (cap 100): evidence-based workflow suggestions, may say "change nothing", asks before edits                | `registerCommand`, session files    | Port, T34 (M)                                                                                  |
+| `deepwork`             | `/deepwork <task>` loads a 175-line orchestrator skill with a pinned state file under `.slim/deepwork/`                          | `registerCommand`, skill            | Port command and skill, T34 (S)                                                                |
+| `deepwork-guard`       | Records write receipts for deepwork state; shadow mode by default                                                                | `tool_call`, `tool_result`          | Skip: records only by default; revisit if deepwork is used                                     |
+| `loop-command`         | `/loop`: goal, success criteria, attempt cap; fixer retries with a history dir                                                   | `registerCommand`                   | Skip: Spiral `/ralph` covers bounded verified retries                                          |
+| `foreground-fallback`  | Replays the last user message on the next model after a retryable provider error                                                 | none safe (replay duplicates turns) | Skip for the orchestrator (Pi retries transient errors); council seats already fall back (T20) |
+| `apply-patch`          | Rewrites native `apply_patch` calls                                                                                              | none                                | Skip: Pi has no `apply_patch`                                                                  |
+| `auto-update-checker`  | npm update check and install on first session                                                                                    | `session_start`                     | Skip: Pi's package manager updates packages                                                    |
+| `cache-monitor`        | Logs large uncached requests and cache-prefix plateaus (observation only)                                                        | `message_end` usage                 | Skip: observation only; cache tokens already shown in usage and the footer                     |
+
+### Tools and helpers
+
+| slim                                                                       | Opium / Pi counterpart                                                                                         | Decision                                                                                      |
+| -------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `task-status`, `task-result`, `task-message`, `task-revive`, `cancel-task` | `agent_status`, `agent_result`, `agent_message` (limit 2000 chars vs slim 500), `agent_revive`, `agent_cancel` | Covered (T22–T24); host-session adoption and aliases are OpenCode-specific                    |
+| `task-ref`                                                                 | Opium run ids are direct                                                                                       | Not applicable                                                                                |
+| `task-activity`, `task-policy`                                             | None: no last-activity clock, no "possibly stuck" advisory (slim: busy and ≥120 s without a completed step)    | Port into T36: last activity per run in the live view and a stuck hint in `agent_status`      |
+| `task-reply`                                                               | Child permission asks are forwarded to the parent dialog (`permissionAsks: forward`)                           | Covered differently                                                                           |
+| `wait-for-user`                                                            | None                                                                                                           | Port, T31                                                                                     |
+| `preset-switch`                                                            | Agent overrides only                                                                                           | Port, T35                                                                                     |
+| `ast-grep`                                                                 | pi-lens `ast_grep_search` / `ast_grep_replace`                                                                 | Covered                                                                                       |
+| `smartfetch`                                                               | pi-web-access `fetch_content`                                                                                  | Covered                                                                                       |
+| `acp-run`                                                                  | pi-claude-bridge covers Claude Code only                                                                       | Skip (L); no need for other ACP agents yet                                                    |
+| `marketplace`                                                              | Pi packages                                                                                                    | Skip: OpenCode marketplace service                                                            |
+| `cache-safe-injection`                                                     | Opium adds one stable system-prompt section                                                                    | Use the pattern in T31/T32: volatile text at the transcript tail, tagged, old copies stripped |
+| `chat-headers`                                                             | No request-header hook in Pi                                                                                   | Not applicable                                                                                |
+| `command-hook-utils`, `session-lifecycle`                                  | `registerCommand`, `session_shutdown`                                                                          | Skip: Pi handles these directly                                                               |
+| `image-hook`, `image-part`                                                 | Pi passes images natively                                                                                      | Skip: OpenCode observer pipeline                                                              |
+
+Effect on phase 6: T31–T33 confirmed; T34 is path rescue + search path
+guard, `/reflect`, `/deepwork` (skill, no guard); T36 gains the activity
+clock and stuck hint; T35 and T37 unchanged.

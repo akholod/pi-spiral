@@ -248,7 +248,7 @@ Issue: https://github.com/akholod/pi-spiral/issues/3
 
 ## Phase 3. Opium council
 
-### [ ] T19. Council on the runner
+### [x] T19. Council on the runner
 
 Issue: https://github.com/akholod/pi-opium/issues/1
 
@@ -258,7 +258,7 @@ Issue: https://github.com/akholod/pi-opium/issues/1
   synthesizer with no tools; keep partial-success and all-failed behavior.
 - **Done when:** existing council tests pass against the new runner fake.
 
-### [ ] T20. Seat model fallback and empty-answer retry
+### [x] T20. Seat model fallback and empty-answer retry
 
 Issue: https://github.com/akholod/pi-opium/issues/2
 
@@ -271,7 +271,7 @@ Issue: https://github.com/akholod/pi-opium/issues/2
 
 ## Phase 4. Opium model-facing tools
 
-### [ ] T21. Agent definitions
+### [x] T21. Agent definitions
 
 Issue: https://github.com/akholod/pi-opium/issues/3
 
@@ -286,7 +286,7 @@ Issue: https://github.com/akholod/pi-opium/issues/3
 - **Done when:** every current agent file loads; invalid frontmatter fails
   with a clear error.
 
-### [ ] T22. Run registry
+### [x] T22. Run registry
 
 Issue: https://github.com/akholod/pi-opium/issues/4
 
@@ -302,7 +302,7 @@ Issue: https://github.com/akholod/pi-opium/issues/4
 - **Done when:** unit tests for caps, eviction, duplicate refusal and
   shutdown.
 
-### [ ] T23. Tools
+### [x] T23. Tools
 
 Issue: https://github.com/akholod/pi-opium/issues/5
 
@@ -315,7 +315,7 @@ Issue: https://github.com/akholod/pi-opium/issues/5
   explicit resume id).
 - **Done when:** tool-level tests for each action and its error cases.
 
-### [ ] T24. Completion delivery
+### [x] T24. Completion delivery
 
 Issue: https://github.com/akholod/pi-opium/issues/6
 
@@ -327,7 +327,7 @@ Issue: https://github.com/akholod/pi-opium/issues/6
 - **Done when:** tests: idle parent gets one new turn; busy parent gets a
   steer; a revived run delivers again only for the new generation.
 
-### [ ] T25. Orchestrator prompt and child marker
+### [x] T25. Orchestrator prompt and child marker
 
 Issue: https://github.com/akholod/pi-opium/issues/7
 
@@ -339,7 +339,7 @@ Issue: https://github.com/akholod/pi-opium/issues/7
 - **Done when:** prompt tests updated; no `subagent(` mention remains in
   the prompt.
 
-### [ ] T26. Opium acceptance checks
+### [x] T26. Opium acceptance checks
 
 Issue: https://github.com/akholod/pi-opium/issues/8
 
@@ -352,7 +352,7 @@ Issue: https://github.com/akholod/pi-opium/issues/8
 
 ## Phase 5. Hardening
 
-### [ ] T27. Failure-path tests
+### [x] T27. Failure-path tests
 
 Issue: https://github.com/akholod/pi-agent-runner/issues/1
 
@@ -363,7 +363,7 @@ Issue: https://github.com/akholod/pi-agent-runner/issues/1
   running child, permission prompt during a run.
 - **Done when:** all pass three times in a row with shuffled test order.
 
-### [ ] T28. Live check without pi-subagents
+### [x] T28. Live check without pi-subagents
 
 Issue: https://github.com/akholod/pi-opium/issues/9
 
@@ -387,7 +387,7 @@ Issue: https://github.com/akholod/pi-agent-runner/issues/2
 
 ## Phase 6. Opium: slim features never ported
 
-### [ ] T30. Inventory of slim hooks and tools
+### [x] T30. Inventory of slim hooks and tools
 
 Issue: https://github.com/akholod/pi-opium/issues/10
 
@@ -436,8 +436,10 @@ Issue: https://github.com/akholod/pi-opium/issues/14
 
 - **Where:** opium
 - **Depends on:** T30
-- **Work:** whatever T30 marks portable (candidates: deepwork, reflect,
-  loop command, search path guard, model fallback).
+- **Work:** what T30 marked portable: absolute path rescue and search
+  path guard (one `tool_call` hook), `/reflect`, `/deepwork` with its
+  skill (no write guard). Skipped by T30: loop command (`/ralph` covers
+  it), foreground model fallback, deepwork guard.
 - **Done when:** each ported hook has tests; skipped ones have a reason
   in the plan.
 
@@ -458,8 +460,10 @@ Issue: https://github.com/akholod/pi-opium/issues/16
 - **Where:** opium (designer)
 - **Depends on:** T22
 - **Work:** TUI widget listing running and recent children with agent,
-  current tool, duration and tokens; optional herdr/tmux pane attach
-  later.
+  current tool, last activity, duration and tokens; `agent_status` shows
+  a "possibly stuck" hint for a run busy without a completed step for
+  120 s (slim `task-activity` / `task-policy`, per T30); optional
+  herdr/tmux pane attach later.
 - **Done when:** the designer's acceptance plus a manual check with three
   parallel runs.
 
