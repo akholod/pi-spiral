@@ -3,11 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { Compile as compile } from 'typebox/compile';
 import type { ParentContext } from 'pi-agent-runner';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { applyModelOverrides, runRalplan } from '../src/ralplan/index.ts';
 import { normalizeReview, type Delegate } from '../src/ralplan/loop.ts';
 import { writeArtifact } from '../src/ralplan/artifact.ts';
+import { CRITIC_REVIEW_SCHEMA } from '../src/ralplan/types.ts';
 import type {
   CriticReview,
   CheckpointDecision,
@@ -351,4 +353,31 @@ test('interactive flag without a handler is ignored', async () => {
   const result = await run(fake, { interactive: true });
   assert.equal(result.outcome, 'approved');
   assert.equal(fake.calls.length, 3);
+});
+
+// The runner validates submit_result with typebox; the critic schema must
+// compile there and accept what the loop expects.
+test('critic schema compiles for the runner and checks verdicts', () => {
+  const checker = compile(CRITIC_REVIEW_SCHEMA);
+  /* eslint-disable new-cap */
+  assert.ok(checker.Check(review('APPROVE', ['MINOR'])));
+  assert.ok(checker.Check(review('ITERATE', [], 'alternativesDepth')));
+  assert.ok(!checker.Check({ ...review('APPROVE'), verdict: 'MAYBE' }));
+  assert.ok(!checker.Check({ ...review('APPROVE'), extra: 1 }));
+  /* eslint-enable new-cap */
+});
+
+test('critic gets the schema verbatim, other roles plain text', async () => {
+  const fake = fakeDelegate({ verdicts: [review('APPROVE')] });
+  await run(fake);
+  for (const call of fake.calls) {
+    if (call.agent === 'spiral-critic') {
+      assert.deepEqual(call.result, {
+        kind: 'structured',
+        schema: CRITIC_REVIEW_SCHEMA,
+      });
+    } else {
+      assert.deepEqual(call.result, { kind: 'text' });
+    }
+  }
 });

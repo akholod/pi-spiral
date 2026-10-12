@@ -184,7 +184,7 @@ packages }` (allowlist by package name, see plan T03) plus the implicit
 - **Done when:** `grep -ri "pi-subagents" spiral/src spiral/extensions
 spiral/README.md` returns nothing; checks green.
 
-### [ ] T14. ralplan acceptance checks
+### [x] T14. ralplan acceptance checks
 
 - **Where:** spiral tests + one live run
 - **Depends on:** T13

@@ -340,6 +340,20 @@ prompt sections an extension adds after `before_agent_start` (for example
 Pi's built-in `<mcp_servers>`, disabled here) do not reach the model
 during that run.
 
+### Policy extensions (T14 finding, 2026-10-09)
+
+A live `/ralplan-cancel` check showed the parent's pi-permission-system
+warning that a registered child "is running with no permission node ...
+its tool calls are not gated there": with `extensions: 'none'` the child
+did not load the permission system at all, so a writer role would bypass
+the user's rules and `permissionAsks` had nothing to act on. pi-subagents
+injects the permission system into children with permission rules
+(`child-tool-plan.ts`, `resolvePermissionSystemExtension`).
+
+Runner: `policyExtensions` (default `['@gotgenes/pi-permission-system']`)
+load into every child when installed, like the provider extension, also
+with `extensions: 'none'`; `[]` turns it off. The re-run had no warning.
+
 ### T08. Structured output, live finding
 
 `submit_result` must not return `terminate: true` (pi-subagents'
