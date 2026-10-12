@@ -654,7 +654,11 @@ export const runRalphLoop = async (
         config.roles.cleaner,
         ROLE_AGENT_NAMES.cleaner,
         `ralph-${state.iterations}-cleaner`,
-        buildCleanerTask(state.changedFiles, verifyCommands),
+        buildCleanerTask(
+          state.changedFiles,
+          verifyCommands,
+          prd.repoQualityClass,
+        ),
       ),
     );
     entry({

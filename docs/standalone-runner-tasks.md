@@ -211,7 +211,7 @@ Independent of the runner; can run in parallel with phases 0–2.
   failure → story fails; failure in a touched file → story fails;
   resume keeps the baseline.
 
-### [ ] T16. Risk-ordered stories and `repoQualityClass`
+### [x] T16. Risk-ordered stories and `repoQualityClass`
 
 Issue: https://github.com/akholod/pi-spiral/issues/1
 

@@ -153,6 +153,7 @@ const EMPTY_PRD: Prd = {
   project: '',
   branchName: '',
   description: '',
+  repoQualityClass: 'production',
   verify: [],
   userStories: [],
 };

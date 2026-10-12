@@ -8,11 +8,13 @@ import {
   prdFromDraft,
   prdStatus,
   type Prd,
+  type RepoQualityClass,
   type Story,
 } from '../src/ralph/prd.ts';
 
 const draft = () => ({
   description: 'd',
+  repoQualityClass: 'production' as RepoQualityClass,
   verify: ['npm test'],
   stories: [
     {

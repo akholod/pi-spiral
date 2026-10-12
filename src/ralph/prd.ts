@@ -26,6 +26,20 @@ export interface AmendmentInput {
   evidence: string;
 }
 
+export const REPO_QUALITY_CLASSES = [
+  'prototype',
+  'production',
+  'library',
+] as const;
+
+export type RepoQualityClass = (typeof REPO_QUALITY_CLASSES)[number];
+
+export const DEFAULT_QUALITY_CLASS: RepoQualityClass = 'production';
+
+// Invalid or missing values fall back to the default (old runs resume).
+export const parseQualityClass = (value: unknown): RepoQualityClass =>
+  REPO_QUALITY_CLASSES.find((c) => c === value) ?? DEFAULT_QUALITY_CLASS;
+
 export interface Story {
   id: string;
   title: string;
@@ -46,6 +60,7 @@ export interface Prd {
   project: string;
   branchName: string;
   description: string;
+  repoQualityClass: RepoQualityClass;
   planArtifact?: string;
   // regression commands proposed by the PRD planner (config may override)
   verify: string[];
@@ -203,6 +218,7 @@ export interface StoryDraft {
 
 export interface PrdDraft {
   description: string;
+  repoQualityClass: RepoQualityClass;
   verify: string[];
   stories: StoryDraft[];
 }
@@ -210,9 +226,10 @@ export interface PrdDraft {
 export const PRD_DRAFT_SCHEMA: Record<string, unknown> = {
   type: 'object',
   additionalProperties: false,
-  required: ['description', 'verify', 'stories'],
+  required: ['description', 'repoQualityClass', 'verify', 'stories'],
   properties: {
     description: { type: 'string' },
+    repoQualityClass: { enum: [...REPO_QUALITY_CLASSES] },
     verify: { type: 'array', maxItems: 10, items: { type: 'string' } },
     stories: {
       type: 'array',
@@ -274,6 +291,7 @@ export const prdFromDraft = (
   project: base.project,
   branchName: base.branchName,
   description: draft.description,
+  repoQualityClass: parseQualityClass(draft.repoQualityClass),
   ...(base.planArtifact ? { planArtifact: base.planArtifact } : {}),
   verify: draft.verify.map((cmd) => cmd.trim()),
   userStories: draft.stories.map((story, index) => ({
@@ -391,6 +409,7 @@ export const normalizePrd = (raw: unknown): Prd | null => {
     project: p.project,
     branchName: p.branchName,
     description: p.description,
+    repoQualityClass: parseQualityClass(p.repoQualityClass),
     ...(typeof p.planArtifact === 'string'
       ? { planArtifact: p.planArtifact }
       : {}),
@@ -462,6 +481,7 @@ export const formatPrd = (prd: Prd): string => {
   const lines = [
     `# ${prd.project}`,
     `Branch: ${prd.branchName}`,
+    `Quality class: ${prd.repoQualityClass}`,
     ...(prd.planArtifact ? [`Plan: ${prd.planArtifact}`] : []),
     '',
     prd.description,

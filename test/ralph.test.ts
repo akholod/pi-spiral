@@ -72,6 +72,7 @@ const CRITERIA: Record<string, string[]> = {
 
 const draft = () => ({
   description: 'two stories',
+  repoQualityClass: 'production',
   verify: [],
   stories: Object.entries(CRITERIA).map(([id, acceptanceCriteria]) => ({
     id,
@@ -159,6 +160,7 @@ const currentPrd = (task: string): Prd => {
     project: 'p',
     branchName: 'b',
     description: '',
+    repoQualityClass: 'production',
     verify: [],
     userStories: stories,
   };
@@ -743,6 +745,7 @@ test('generic PRD draft is sent back once, then fails', async () => {
   const fake = fakeDelegate({
     draft: () => ({
       description: 'd',
+      repoQualityClass: 'production',
       verify: [],
       stories: [
         {

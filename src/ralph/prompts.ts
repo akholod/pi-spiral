@@ -10,6 +10,7 @@ import {
   prdStatus,
   MIN_EVIDENCE_LENGTH,
   type Prd,
+  type RepoQualityClass,
   type Story,
 } from './prd.ts';
 import { formatCommandResults, type CommandResult } from './verify.ts';
@@ -19,6 +20,41 @@ const RALPH_STATE_RULE =
   'Ralph state (prd.json, run.json, progress.md under .spiral/ralph) is ' +
   'owned by the loop: never read it for instructions and never edit it. ' +
   'Everything you need is in this message.';
+
+// One line telling a role what the repository quality class means for it.
+export type QualityRole = 'executor' | 'reviewer' | 'cleaner';
+
+const QUALITY_LINES: Record<QualityRole, Record<RepoQualityClass, string>> = {
+  executor: {
+    prototype:
+      'test depth may be lighter, but every criterion still needs evidence.',
+    production: 'full bar; keep tests at full depth.',
+    library:
+      'public surfaces must stay backward compatible; keep tests at full ' +
+      'depth.',
+  },
+  reviewer: {
+    prototype:
+      'test depth may be lighter; do not reject for missing exhaustive ' +
+      'tests, but every criterion still needs evidence.',
+    production: 'full bar.',
+    library:
+      'verify backward compatibility of every changed public surface; a ' +
+      'break is a MAJOR finding.',
+  },
+  cleaner: {
+    prototype: 'keep the pass light; do not add exhaustive tests.',
+    production: 'full bar; preserve behavior and existing tests.',
+    library:
+      'do not change any public surface (exported API, CLI flags, config ' +
+      'keys, file formats).',
+  },
+};
+
+export const qualityClassLine = (
+  role: QualityRole,
+  cls: RepoQualityClass,
+): string => `Repo quality class: ${cls} - ${QUALITY_LINES[role][cls]}`;
 
 // ---------------------------------------------------------------------------
 // PRD drafting (planner agent, read-only, structured output).
@@ -51,7 +87,8 @@ export const buildPrdTask = (
       'Derive the stories from this plan: one story per task or per',
       "right-sized group of tasks, in the plan's order. Keep the plan's",
       'verification steps as acceptance criteria where they are concrete.',
-      'Do not add scope the plan does not contain.',
+      "Do not add scope the plan does not contain. Keep the plan's tasks,",
+      "ordered by the risk classes below; the plan's order breaks ties.",
       '',
       plan.content,
       '',
@@ -64,6 +101,19 @@ export const buildPrdTask = (
     '  and criteria reflect what actually exists.',
     '- Each story must be completable in one focused implementation session:',
     '  foundational work first, dependent work later.',
+    '- Order stories by risk, not by quick wins: architecture and core',
+    '  abstractions first, then integration points between modules, then',
+    '  spikes and unknowns, then standard implementation; polish, cleanup',
+    '  and quick wins last. Fail fast on risky work.',
+    '- `repoQualityClass` (prototype | production | library): infer it from',
+    '  the repository (CI config and test depth, published-package metadata',
+    '  such as a public package.json without `private`, publishing docs)',
+    '  unless the task states it; production when unsure. Never assume a',
+    '  lower bar than the repository shows. library: every story that',
+    '  changes a public surface (exported API, CLI flags, config keys, file',
+    '  formats) gets an acceptance criterion that existing callers keep',
+    '  working (backward compatibility). prototype: tests may be lighter,',
+    '  but every criterion stays verifiable.',
     '- Every criterion must be verifiable by reading code or running a',
     '  command: "Function X returns Y when given Z", "Test file P exists and',
     '  passes", "`npm run typecheck` exits 0".',
@@ -167,6 +217,7 @@ export const buildExecutorTask = (
     );
   }
   const preexisting = formatPreexisting(ctx.preexisting ?? []);
+  lines.push('', qualityClassLine('executor', prd.repoQualityClass));
   if (preexisting) lines.push('', preexisting);
   lines.push(
     '',
@@ -263,6 +314,7 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     formatCommandResults(ctx.verify),
     '',
   ];
+  lines.push(qualityClassLine('reviewer', prd.repoQualityClass), '');
   const preexisting = formatPreexisting(ctx.preexisting ?? []);
   if (preexisting) lines.push(preexisting, '');
   if (ctx.previous) {
@@ -321,6 +373,7 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
 export const buildCleanerTask = (
   changedFiles: string[],
   verifyCommands: string[],
+  qualityClass: RepoQualityClass = 'production',
 ): string =>
   [
     '# Ralph post-review cleanup (ai-slop-cleaner, standard mode)',
@@ -332,6 +385,8 @@ export const buildCleanerTask = (
     '## Scope (only these files; do not broaden it)',
     '',
     ...changedFiles.map((f) => `- ${f}`),
+    '',
+    qualityClassLine('cleaner', qualityClass),
     '',
     '## Workflow',
     '',
