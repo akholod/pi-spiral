@@ -49,6 +49,6 @@
     "typescript-eslint": "^8.71.1"
   },
   "dependencies": {
-    "pi-agent-runner": "file:../pi-agent-runner"
+    "pi-agent-runner": "^0.1.0"
   }
 }
