@@ -185,3 +185,21 @@ test('runner updates are mapped with the request identity', async () => {
     },
   ]);
 });
+
+// T18: the runner's git guard (push, reset --hard, clean -f, branch -D,
+// discarding checkout/restore) stays on for every role; nothing in Spiral
+// turns it off, and no role nests further children.
+test('every role keeps the git guard and the nesting limit', async () => {
+  for (const agent of [
+    'spiral-planner',
+    'spiral-architect',
+    'spiral-critic',
+    'spiral-executor',
+    'spiral-cleaner',
+  ]) {
+    const fake = fakeRunner();
+    await delegate(parent, options({ agent }), { runAgent: fake.runAgent });
+    assert.notEqual(fake.calls[0].gitGuard, false, agent);
+    assert.equal(fake.calls[0].maxDepth, undefined, agent);
+  }
+});

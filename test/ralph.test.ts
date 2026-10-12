@@ -986,3 +986,28 @@ test('budget 0 never stops a run', async () => {
   });
   assert.equal(result.outcome, 'completed', why(result));
 });
+
+// T18: a user cancel mid-run, then /ralph --resume, finishes the same run.
+test('cancel mid-run, then resume completes the same run', async () => {
+  const cwd = tempCwd();
+  const fake = fakeDelegate();
+  const controller = new AbortController();
+  const cancelling: Delegate = async (p, req) => {
+    if (req.agent === 'spiral-executor' && req.nodeId.endsWith('US-002')) {
+      controller.abort();
+      return { requestId: 'r', status: 'cancelled' };
+    }
+    return fake.delegateFn(p, req);
+  };
+  const stopped = await run(fake, {
+    cwd,
+    delegateFn: cancelling,
+    signal: controller.signal,
+  });
+  assert.equal(stopped.outcome, 'aborted');
+  const second = fakeDelegate();
+  const resumed = await run(second, { cwd, task: '', resume: 'latest' });
+  assert.equal(resumed.outcome, 'completed', why(resumed));
+  assert.equal(resumed.runId, stopped.runId);
+  assert.ok(second.calls[0].nodeId.endsWith('US-002'));
+});

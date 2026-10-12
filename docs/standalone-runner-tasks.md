@@ -235,7 +235,7 @@ Issue: https://github.com/akholod/pi-spiral/issues/2
   stop at 100%).
 - **Done when:** tests for each outcome; empty closeout writes nothing.
 
-### [ ] T18. ralph acceptance checks
+### [x] T18. ralph acceptance checks
 
 Issue: https://github.com/akholod/pi-spiral/issues/3
 
