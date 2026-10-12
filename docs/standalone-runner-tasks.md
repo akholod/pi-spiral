@@ -197,7 +197,7 @@ spiral/README.md` returns nothing; checks green.
 
 Independent of the runner; can run in parallel with phases 0–2.
 
-### [ ] T15. Feedback baseline
+### [x] T15. Feedback baseline
 
 - **Where:** spiral `src/ralph/verify.ts`, `loop.ts`, `state.ts`
 - **Work:** run `verify` commands once at start and store per-command

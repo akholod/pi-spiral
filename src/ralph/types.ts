@@ -8,6 +8,8 @@ export type { UsageTotals };
 // Executor report (structured output of one story attempt).
 
 export interface CriterionCheck {
+  // 1-based number of the criterion in the story's active list
+  index?: number;
   criterion: string;
   met: boolean;
   evidence: string;
@@ -50,8 +52,9 @@ export const EXECUTOR_REPORT_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['criterion', 'met', 'evidence'],
+        required: ['index', 'criterion', 'met', 'evidence'],
         properties: {
+          index: { type: 'integer', minimum: 1 },
           criterion: { type: 'string' },
           met: { type: 'boolean' },
           evidence: { type: 'string' },
@@ -87,6 +90,8 @@ export type CriterionStatus = 'VERIFIED' | 'PARTIAL' | 'MISSING';
 
 export interface ReviewCriterion {
   storyId: string;
+  // 1-based number of the criterion in the story's list
+  index?: number;
   criterion: string;
   status: CriterionStatus;
   evidence: string;
@@ -131,9 +136,10 @@ export const REVIEW_REPORT_SCHEMA: Record<string, unknown> = {
       items: {
         type: 'object',
         additionalProperties: false,
-        required: ['storyId', 'criterion', 'status', 'evidence'],
+        required: ['storyId', 'index', 'criterion', 'status', 'evidence'],
         properties: {
           storyId: { type: 'string' },
+          index: { type: 'integer', minimum: 1 },
           criterion: { type: 'string' },
           status: { type: 'string', enum: ['VERIFIED', 'PARTIAL', 'MISSING'] },
           evidence: { type: 'string' },
@@ -185,7 +191,8 @@ export type DeslopStatus = 'done' | 'skipped' | 'failed' | 'not-reached';
 
 // State of the loop-run regression commands at the end of the run.
 // 'none' = no commands were configured or confirmed, so nothing was run.
-export type Verification = 'passed' | 'failed' | 'none';
+// 'baseline' = no new failures, but failures recorded before the run remain.
+export type Verification = 'passed' | 'baseline' | 'failed' | 'none';
 
 export interface RalphResult {
   outcome: RalphOutcome;
@@ -198,6 +205,8 @@ export interface RalphResult {
   deslop: DeslopStatus;
   verification: Verification;
   verifyCommands: string[];
+  // pre-existing failures that did not block (deduped, capped)
+  baselineWarnings: string[];
   // true when HEAD moved during the run (a child committed)
   headChanged: boolean;
   usage: UsageTotals;

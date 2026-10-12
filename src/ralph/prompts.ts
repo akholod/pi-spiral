@@ -92,12 +92,27 @@ export const buildPrdTask = (
 // ---------------------------------------------------------------------------
 // Executor: one story attempt.
 
+// Failures recorded before the run; empty string when there are none.
+const PREEXISTING_MAX = 10;
+export const formatPreexisting = (failures: string[]): string =>
+  failures.length === 0
+    ? ''
+    : 'Pre-existing failures (present before this run; do not fix them in ' +
+      `this run, they do not block): ${failures
+        .slice(0, PREEXISTING_MAX)
+        .join(' | ')}${
+        failures.length > PREEXISTING_MAX
+          ? ` (+${failures.length - PREEXISTING_MAX} more)`
+          : ''
+      }`;
+
 export interface ExecutorContext {
   iteration: number;
   maxIterations: number;
   progressContext: string;
   verifyCommands: string[];
   lastVerify: CommandResult[] | null;
+  preexisting?: string[];
 }
 
 export const buildExecutorTask = (
@@ -151,6 +166,8 @@ export const buildExecutorTask = (
       '</last-verify-run>',
     );
   }
+  const preexisting = formatPreexisting(ctx.preexisting ?? []);
+  if (preexisting) lines.push('', preexisting);
   lines.push(
     '',
     '## Instructions',
@@ -195,6 +212,7 @@ export const buildExecutorTask = (
     '  `summary`); `blocked` when the user must act.',
     '- `criteria`: one entry per active criterion, verbatim text, `met` and',
     '  the concrete evidence (command + result, file:line, test name).',
+    "  `index` is the criterion's number in the list above.",
     '- `filesChanged`: every file you created, modified or deleted.',
     '- `learnings`: what a future iteration should know; `patterns`: reusable',
     '  codebase conventions you discovered (short, one line each).',
@@ -213,6 +231,7 @@ export interface ReviewContext {
   changedFiles: string[];
   verify: CommandResult[];
   previous: ReviewReport | null;
+  preexisting?: string[];
 }
 
 export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
@@ -244,6 +263,8 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     formatCommandResults(ctx.verify),
     '',
   ];
+  const preexisting = formatPreexisting(ctx.preexisting ?? []);
+  if (preexisting) lines.push(preexisting, '');
   if (ctx.previous) {
     lines.push(
       '## Your previous verdict (rejected)',
@@ -264,7 +285,8 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     '   concrete evidence (file:line, test name, command output). Status',
     '   VERIFIED only when the evidence is conclusive; PARTIAL or MISSING',
     '   otherwise. Cover every criterion: an uncovered criterion blocks',
-    '   approval.',
+    "   approval. Report `storyId` and `index` (the criterion's number in",
+    "   that story's list).",
     '2. Each criterion amendment in the ledger is justified by its cited',
     '   evidence and the active criteria are the ones that should govern.',
     '3. All code related to the changes, not only the modified files:',
@@ -351,6 +373,7 @@ export const buildRegressionFixTask = (
   results: CommandResult[],
   attempt: number,
   maxAttempts: number,
+  preexisting: string[] = [],
 ): string =>
   [
     `[RALPH - POST-CLEANUP REGRESSION, attempt ${attempt}/${maxAttempts}]`,
@@ -368,6 +391,7 @@ export const buildRegressionFixTask = (
     '## Failing regression run',
     '',
     formatCommandResults(results),
+    ...(preexisting.length > 0 ? ['', formatPreexisting(preexisting)] : []),
     '',
     `${RALPH_STATE_RULE}`,
     '',

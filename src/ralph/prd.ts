@@ -479,3 +479,29 @@ export const formatPrd = (prd: Prd): string => {
   }
   return lines.join('\n');
 };
+
+// Lower-case, quotes and punctuation dropped, whitespace collapsed: models
+// re-quote criteria (`a + b` vs a + b) when they copy them.
+const normalizeCriterion = (text: string): string =>
+  text
+    .toLowerCase()
+    .replace(/[`'"\u2018\u2019\u201c\u201d]/g, '')
+    .replace(/[.,;:!?]+(\s|$)/g, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+// A child's report entry for criterion `index` (0-based) of a story: by the
+// reported number first, then by text. Models paraphrase criteria, so exact
+// text alone dropped verified criteria (found live with gpt-6-luna).
+export const findCriterionEntry = <
+  T extends { index?: number; criterion: string },
+>(
+  entries: T[],
+  criteria: string[],
+  index: number,
+): T | undefined => {
+  const byIndex = entries.find((e) => e.index === index + 1);
+  if (byIndex) return byIndex;
+  const wanted = normalizeCriterion(criteria[index]);
+  return entries.find((e) => normalizeCriterion(e.criterion) === wanted);
+};

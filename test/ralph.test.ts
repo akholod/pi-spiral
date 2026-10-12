@@ -344,13 +344,20 @@ test('executor blocked -> outcome blocked with the blockers', async () => {
   assert.equal(fake.counts['exec:US-001'], 1);
 });
 
-test('regression command failure keeps the story open', async () => {
-  const fake = fakeDelegate();
-  const result = await run(fake, { config: config({ verify: ['exit 3'] }) });
+test('a new regression failure keeps the story open', async () => {
+  const cwd = tempCwd();
+  const flag = join(cwd, 'broken.flag');
+  const fake = fakeDelegate({
+    onCall: (req) => {
+      if (req.agent === 'spiral-executor') writeFileSync(flag, '');
+    },
+  });
+  const verify = `test ! -e ${flag} || (echo "FAIL new.test.js"; exit 3)`;
+  const result = await run(fake, { cwd, config: config({ verify: [verify] }) });
   assert.equal(result.outcome, 'blocked');
   assert.match(
     result.prd.userStories[0].notes[0],
-    /regression commands failed: exit 3/,
+    /regression commands failed \(new\): .*FAIL new\.test\.js/,
   );
   assert.equal(result.verification, 'failed');
   // the retry saw the failing output
@@ -359,11 +366,12 @@ test('regression command failure keeps the story open', async () => {
 
 test('red regression before review re-opens the PRD; reviewer not asked', async () => {
   const cwd = tempCwd();
-  // passes on every run except the third (the pre-review run)
+  // passes on every run except the fourth (the pre-review run; the first
+  // is the baseline)
   const counter = join(cwd, 'counter');
   const verify =
     `n=$(cat ${counter} 2>/dev/null || echo 0); echo $((n+1)) > ${counter}; ` +
-    'test $n -ne 2';
+    'test $n -ne 3';
   const fake = fakeDelegate();
   const result = await run(fake, {
     cwd,
@@ -375,7 +383,7 @@ test('red regression before review re-opens the PRD; reviewer not asked', async 
   assert.ok(rv);
   assert.equal(rv.title, 'Regression commands fail');
   assert.ok(rv.passes);
-  assert.ok(rv.acceptanceCriteria[0].includes('exits 0'));
+  assert.ok(rv.acceptanceCriteria[0].includes('shows no new failures'));
   assert.ok(result.prd.userStories.every((s) => s.reviewerVerified));
   const entries = JSON.parse(
     readFileSync(join(result.runDir, 'run.json'), 'utf8'),
@@ -386,6 +394,88 @@ test('red regression before review re-opens the PRD; reviewer not asked', async 
   assert.ok(
     fake.calls[reviewerCall - 1].nodeId.endsWith('RV-001'),
     'RV story fixed before review',
+  );
+});
+
+const entriesOf = (runDir: string): { outcome: string; summary: string }[] =>
+  JSON.parse(readFileSync(join(runDir, 'run.json'), 'utf8')).entries;
+
+test('pre-existing failures do not block and are reported', async () => {
+  const fake = fakeDelegate();
+  const result = await run(fake, {
+    config: config({ verify: ['echo "FAIL tests/old.test.js"; exit 1'] }),
+  });
+  assert.equal(result.outcome, 'completed', why(result));
+  assert.equal(result.verification, 'baseline');
+  assert.deepEqual(result.baselineWarnings, [
+    'echo "FAIL tests/old.test.js"; exit 1: FAIL tests/old.test.js',
+  ]);
+  const baselines = entriesOf(result.runDir).filter(
+    (e) => e.outcome === 'baseline',
+  );
+  assert.equal(baselines.length, 1);
+  assert.match(baselines[0].summary, /1 pre-existing failure signature/);
+  // executors are told not to fix them
+  assert.match(fake.calls[1].task, /Pre-existing failures .*FAIL tests\/old/);
+});
+
+test('a clean baseline is recorded as clean', async () => {
+  const result = await run(fakeDelegate());
+  assert.equal(result.verification, 'passed');
+  assert.deepEqual(result.baselineWarnings, []);
+  const baselines = entriesOf(result.runDir).filter(
+    (e) => e.outcome === 'baseline',
+  );
+  assert.equal(baselines.length, 1);
+  assert.match(baselines[0].summary, /feedback baseline: clean/);
+});
+
+test('a baseline failure in a touched file is a new failure', async () => {
+  const fake = fakeDelegate({
+    executor: (story) =>
+      done(story, CRITERIA[story], { filesChanged: ['src/a.js'] }),
+  });
+  const result = await run(fake, {
+    config: config({ verify: ['echo "FAIL src/a.js: boom"; exit 1'] }),
+  });
+  assert.equal(result.outcome, 'blocked');
+  assert.match(
+    result.prd.userStories[0].notes[0],
+    /regression commands failed \(new\): .*FAIL src\/a\.js: boom/,
+  );
+});
+
+test('resume keeps the stored baseline', async () => {
+  const cwd = tempCwd();
+  const out = join(cwd, 'out.txt');
+  writeFileSync(out, 'FAIL old\n');
+  const verify = `cat ${out}; test ! -s ${out}`;
+  const first = fakeDelegate({
+    executor: (story) =>
+      story === 'US-002'
+        ? done(story, [], { status: 'blocked', blockers: ['ask user'] })
+        : done(story, CRITERIA[story]),
+  });
+  const stopped = await run(first, {
+    cwd,
+    config: config({ verify: [verify] }),
+  });
+  assert.equal(stopped.outcome, 'blocked');
+  writeFileSync(out, '');
+  const resumed = await run(fakeDelegate(), {
+    cwd,
+    task: '',
+    resume: 'latest',
+    config: config({ verify: [verify] }),
+  });
+  assert.equal(resumed.outcome, 'completed', why(resumed));
+  const state = JSON.parse(
+    readFileSync(join(resumed.runDir, 'run.json'), 'utf8'),
+  );
+  assert.deepEqual(state.feedbackBaseline[verify].signatures, ['FAIL old']);
+  assert.equal(
+    entriesOf(resumed.runDir).filter((e) => e.outcome === 'baseline').length,
+    1,
   );
 });
 

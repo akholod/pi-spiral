@@ -21,6 +21,7 @@ import {
 } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, isAbsolute, join } from 'node:path';
+import { isFeedbackBaseline, type FeedbackBaseline } from './baseline.ts';
 import { normalizePrd, type Prd } from './prd.ts';
 import type { RalphOutcome, ReviewReport, Verification } from './types.ts';
 
@@ -74,7 +75,8 @@ export interface ProgressEntry {
     | 'blocked'
     | 'cleanup'
     | 'regression-fix'
-    | 'verify-failed';
+    | 'verify-failed'
+    | 'baseline';
   summary: string;
   filesChanged: string[];
   learnings: string[];
@@ -96,6 +98,11 @@ export interface RunState {
   // regression commands in effect for this run (config, or confirmed PRD)
   verifyCommands: string[];
   verification: Verification;
+  // failure signatures per command before the first story; null = not
+  // recorded yet
+  feedbackBaseline: FeedbackBaseline | null;
+  // pre-existing failures that passed a gate (deduped, capped)
+  baselineWarnings: string[];
   cleanupDone: boolean;
   // files touched during this run (executor reports + git delta)
   changedFiles: string[];
@@ -148,7 +155,7 @@ const OUTCOMES = new Set([
   'failed',
 ]);
 const PHASES = new Set(['stories', 'review', 'cleanup', 'done']);
-const VERIFICATIONS = new Set(['passed', 'failed', 'none']);
+const VERIFICATIONS = new Set(['passed', 'baseline', 'failed', 'none']);
 const ENTRY_OUTCOMES = new Set([
   'passed',
   'failed',
@@ -156,6 +163,7 @@ const ENTRY_OUTCOMES = new Set([
   'cleanup',
   'regression-fix',
   'verify-failed',
+  'baseline',
 ]);
 
 const normalizeEntry = (raw: unknown): ProgressEntry | null => {
@@ -204,6 +212,10 @@ export const normalizeRun = (raw: unknown): RunState | null => {
     !isStringArray(r.verifyCommands) ||
     typeof r.verification !== 'string' ||
     !VERIFICATIONS.has(r.verification) ||
+    (r.feedbackBaseline !== undefined &&
+      r.feedbackBaseline !== null &&
+      !isFeedbackBaseline(r.feedbackBaseline)) ||
+    (r.baselineWarnings !== undefined && !isStringArray(r.baselineWarnings)) ||
     typeof r.cleanupDone !== 'boolean' ||
     !isStringArray(r.changedFiles) ||
     !isStringArray(r.gitBaseline) ||
@@ -230,6 +242,8 @@ export const normalizeRun = (raw: unknown): RunState | null => {
     reviewRounds: r.reviewRounds as number,
     verifyCommands: r.verifyCommands,
     verification: r.verification as Verification,
+    feedbackBaseline: (r.feedbackBaseline as FeedbackBaseline) ?? null,
+    baselineWarnings: (r.baselineWarnings as string[] | undefined) ?? [],
     cleanupDone: r.cleanupDone,
     changedFiles: r.changedFiles,
     gitBaseline: r.gitBaseline,

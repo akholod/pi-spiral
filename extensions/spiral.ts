@@ -138,6 +138,12 @@ const summarizeRalph = (result: RalphResult): string => {
       : `verification: ${result.verification} ` +
           `(${result.verifyCommands.join(' && ')})`,
   );
+  if (result.baselineWarnings.length > 0) {
+    const warnings = result.baselineWarnings.join(' | ');
+    lines.push(
+      `pre-existing failures (present before the run, not fixed): ${warnings}`,
+    );
+  }
   lines.push(`deslop: ${result.deslop}`);
   lines.push(
     'changed files: ' +

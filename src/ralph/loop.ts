@@ -30,8 +30,14 @@ import {
   textOf,
 } from '../subagents/responses.ts';
 import {
+  diffBaseline,
+  fingerprintAll,
+  listBaselineFailures,
+} from './baseline.ts';
+import {
   addReviewStory,
   amendCriterion,
+  findCriterionEntry,
   markStoryFailed,
   markStoryPassed,
   prdStatus,
@@ -62,7 +68,6 @@ import {
   type ReviewReport,
 } from './types.ts';
 import {
-  allOk,
   gitDirtyFiles,
   gitHead,
   runCommands,
@@ -121,10 +126,9 @@ export const normalizeReview = (
   let unverified = 0;
   let unsupported = 0;
   for (const story of prd.userStories) {
-    for (const criterion of story.acceptanceCriteria) {
-      const entry = review.criteria.find(
-        (c) => c.storyId === story.id && c.criterion.trim() === criterion,
-      );
+    const entries = review.criteria.filter((c) => c.storyId === story.id);
+    for (let i = 0; i < story.acceptanceCriteria.length; i++) {
+      const entry = findCriterionEntry(entries, story.acceptanceCriteria, i);
       if (!entry) uncovered++;
       else if (entry.status !== 'VERIFIED') unverified++;
       else if (!hasEvidence(entry.evidence)) unsupported++;
@@ -226,6 +230,21 @@ export const applyRejection = (
 };
 
 const OUTPUT_NOTE = 1500;
+const MAX_WARNINGS = 10;
+const MAX_NOTED_FAILURES = 5;
+
+// A verification run judged against the feedback baseline.
+interface Judged {
+  results: CommandResult[];
+  newFailures: string[];
+  baselineFailures: string[];
+}
+
+// Commands (in run order) that have a new failure line.
+const commandsWithNew = (judged: Judged): CommandResult[] =>
+  judged.results.filter((r) =>
+    judged.newFailures.some((f) => f.startsWith(`${r.command}: `)),
+  );
 
 export const runRalphLoop = async (
   options: RunLoopOptions,
@@ -270,6 +289,7 @@ export const runRalphLoop = async (
       deslop,
       verification: state.verification,
       verifyCommands,
+      baselineWarnings: state.baselineWarnings,
       headChanged,
       usage,
       ...extra,
@@ -309,13 +329,83 @@ export const runRalphLoop = async (
     return response;
   };
 
-  // Runs the regression commands and records the verification state.
-  // With no commands there is no verification, and that is reported as
-  // such rather than as a pass.
-  const verify = async (): Promise<CommandResult[]> => {
+  const entry = (partial: Omit<ProgressEntry, 'timestamp'>): void => {
+    state.entries.push({ timestamp: new Date().toISOString(), ...partial });
+  };
+
+  const preexisting = (): string[] =>
+    listBaselineFailures(state.feedbackBaseline);
+
+  // Diffs a run against the feedback baseline; `touched` files promote
+  // baseline failures that mention them to new failures.
+  const judge = (results: CommandResult[], touched: string[]): Judged => {
+    const diff = diffBaseline(
+      state.feedbackBaseline,
+      fingerprintAll(results),
+      touched,
+    );
+    return {
+      results,
+      newFailures: diff.newFailures,
+      baselineFailures: diff.baselineFailures,
+    };
+  };
+
+  // Runs the regression commands once before the first story and stores
+  // their failure signatures. A resumed run keeps its stored baseline.
+  const recordBaseline = async (): Promise<boolean> => {
+    if (verifyCommands.length === 0 || state.feedbackBaseline !== null) {
+      return true;
+    }
+    options.onProgress?.({
+      iteration: 0,
+      role: 'verify',
+      phase: 'started',
+      detail: 'baseline',
+    });
+    const results = await runCommands(
+      verifyCommands,
+      request.cwd,
+      config.verifyTimeoutMs,
+      options.signal,
+    );
+    // a cancelled run would record kill artifacts as failures
+    if (options.signal?.aborted) return false;
+    state.feedbackBaseline = fingerprintAll(results);
+    const known = listBaselineFailures(state.feedbackBaseline);
+    const commands = Object.entries(state.feedbackBaseline)
+      .filter(([, b]) => b.unrunnable || b.signatures.length > 0)
+      .map(([command]) => command);
+    entry({
+      storyId: 'baseline',
+      attempt: 0,
+      outcome: 'baseline',
+      summary:
+        known.length === 0
+          ? 'feedback baseline: clean'
+          : `feedback baseline: ${known.length} pre-existing failure ` +
+            `signature(s) in ${commands.join(', ')}`,
+      filesChanged: [],
+      learnings: [],
+    });
+    options.onProgress?.({
+      iteration: 0,
+      role: 'verify',
+      phase: 'finished',
+      detail: 'baseline',
+    });
+    persist();
+    return true;
+  };
+
+  // Runs the regression commands and records the verification state:
+  // 'passed' (all green), 'baseline' (only pre-existing failures remain) or
+  // 'failed' (new failures). With no commands there is no verification, and
+  // that is reported as such rather than as a pass.
+  const verify = async (touched: string[]): Promise<Judged> => {
     if (verifyCommands.length === 0) {
       state.verification = 'none';
-      return [];
+      return { results: [], newFailures: [], baselineFailures: [] };
     }
     const iteration = state.iterations;
     options.onProgress?.({ iteration, role: 'verify', phase: 'started' });
@@ -325,7 +415,22 @@ export const runRalphLoop = async (
       config.verifyTimeoutMs,
       options.signal,
     );
-    state.verification = allOk(results) ? 'passed' : 'failed';
+    const judged = judge(results, touched);
+    if (judged.newFailures.length > 0) {
+      state.verification = 'failed';
+    } else if (judged.baselineFailures.length > 0) {
+      state.verification = 'baseline';
+      for (const failure of judged.baselineFailures) {
+        if (
+          state.baselineWarnings.length < MAX_WARNINGS &&
+          !state.baselineWarnings.includes(failure)
+        ) {
+          state.baselineWarnings.push(failure);
+        }
+      }
+    } else {
+      state.verification = 'passed';
+    }
     options.onProgress?.({
       iteration,
       role: 'verify',
@@ -333,7 +438,7 @@ export const runRalphLoop = async (
       detail: state.verification,
     });
     lastVerify = results;
-    return results;
+    return judged;
   };
 
   const gitDelta = async (): Promise<string[] | null> => {
@@ -347,10 +452,6 @@ export const runRalphLoop = async (
     addUnique(state.changedFiles, reported);
     const delta = await gitDelta();
     if (delta) addUnique(state.changedFiles, delta);
-  };
-
-  const entry = (partial: Omit<ProgressEntry, 'timestamp'>): void => {
-    state.entries.push({ timestamp: new Date().toISOString(), ...partial });
   };
 
   const executor = async (
@@ -371,17 +472,12 @@ export const runRalphLoop = async (
       ),
     );
 
-  const failedCommands = (results: CommandResult[]): string =>
-    results
-      .filter((r) => !r.ok)
-      .map((r) => r.command)
-      .join(', ');
-
   // One story attempt; returns a terminal outcome when the loop must stop.
   const attemptStory = async (
     story: Story,
   ): Promise<RalphResult['outcome'] | null> => {
     story.attempts++;
+    const knownFiles = new Set(state.changedFiles);
     const report = await executor(
       `ralph-${state.iterations}-executor-${story.id}`,
       buildExecutorTask(prd, story, {
@@ -390,9 +486,18 @@ export const runRalphLoop = async (
         progressContext: formatProgressContext(state),
         verifyCommands,
         lastVerify,
+        preexisting: preexisting(),
       }),
     );
     await recordChangedFiles(report.filesChanged);
+    // touched by this attempt: what it reported plus the files it added to
+    // the run's changed set (git delta)
+    const touched = [
+      ...new Set([
+        ...report.filesChanged,
+        ...state.changedFiles.filter((f) => !knownFiles.has(f)),
+      ]),
+    ];
     addUnique(state.patterns, report.patterns);
 
     const problems: string[] = [];
@@ -402,13 +507,16 @@ export const runRalphLoop = async (
     }
     const unmet: string[] = [];
     const unsupported: string[] = [];
-    for (const criterion of story.acceptanceCriteria) {
-      const check = report.criteria.find(
-        (c) => c.criterion.trim() === criterion && c.met,
+    story.acceptanceCriteria.forEach((criterion, i) => {
+      const found = findCriterionEntry(
+        report.criteria,
+        story.acceptanceCriteria,
+        i,
       );
+      const check = found?.met ? found : undefined;
       if (!check) unmet.push(criterion);
       else if (!hasEvidence(check.evidence)) unsupported.push(criterion);
-    }
+    });
     if (unmet.length > 0) {
       problems.push(`criteria not met or not reported: ${unmet.join(' | ')}`);
     }
@@ -436,12 +544,16 @@ export const runRalphLoop = async (
 
     let outcome: ProgressEntry['outcome'] = 'failed';
     if (report.status === 'done' && problems.length === 0) {
-      const results = await verify();
-      if (allOk(results)) {
+      const judged = await verify(touched);
+      if (judged.newFailures.length === 0) {
         markStoryPassed(story, report.summary);
         outcome = 'passed';
       } else {
-        problems.push(`regression commands failed: ${failedCommands(results)}`);
+        problems.push(
+          `regression commands failed (new): ${judged.newFailures
+            .slice(0, MAX_NOTED_FAILURES)
+            .join(' | ')}`,
+        );
       }
     } else if (report.status === 'incomplete') {
       problems.unshift(`executor reported incomplete: ${report.summary}`);
@@ -470,24 +582,27 @@ export const runRalphLoop = async (
   };
 
   // A red regression run re-opens the PRD; the reviewer is not asked.
-  const reopenForRegression = (results: CommandResult[]): void => {
-    const failing = results.filter((r) => !r.ok);
+  const reopenForRegression = (judged: Judged): void => {
+    const failing = commandsWithNew(judged);
     const story = addReviewStory(
       prd,
       state.reviewRounds + 1,
-      failing.map((r) => `\`${r.command}\` exits 0`),
+      failing.map((r) => `\`${r.command}\` shows no new failures`),
     );
     story.title = 'Regression commands fail';
     story.description =
       'The regression commands failed before the completion review. ' +
       'Make them pass without weakening them.';
     for (const r of failing) {
+      const fresh = judged.newFailures.filter((f) =>
+        f.startsWith(`${r.command}: `),
+      );
       story.notes.push(
-        `${r.command} (exit ${r.exitCode ?? '?'}): ` +
-          `${r.output.slice(-OUTPUT_NOTE)}`,
+        `${r.command} (exit ${r.exitCode ?? '?'}) new failures: ` +
+          `${fresh.join(' | ')}\n${r.output.slice(-OUTPUT_NOTE)}`,
       );
     }
-    const failedText = failedCommands(results);
+    const failedText = failing.map((r) => r.command).join(', ');
     entry({
       storyId: story.id,
       attempt: 0,
@@ -515,6 +630,7 @@ export const runRalphLoop = async (
             changedFiles: state.changedFiles,
             verify: lastVerify ?? [],
             previous: state.reviews.at(-1) ?? null,
+            preexisting: preexisting(),
           }),
           REVIEW_REPORT_SCHEMA,
         ),
@@ -549,16 +665,21 @@ export const runRalphLoop = async (
       filesChanged: [],
       learnings: [],
     });
-    let results = await verify();
+    let judged = await verify(state.changedFiles);
     let repaired = false;
-    for (let fix = 1; !allOk(results) && fix <= MAX_REGRESSION_FIXES; fix++) {
+    for (
+      let fix = 1;
+      judged.newFailures.length > 0 && fix <= MAX_REGRESSION_FIXES;
+      fix++
+    ) {
       const report = await executor(
         `ralph-${state.iterations}-regression-fix-${fix}`,
         buildRegressionFixTask(
           state.changedFiles,
-          results,
+          judged.results,
           fix,
           MAX_REGRESSION_FIXES,
+          preexisting(),
         ),
       );
       repaired = true;
@@ -570,14 +691,15 @@ export const runRalphLoop = async (
         filesChanged: report.filesChanged,
         learnings: report.learnings,
       });
-      results = await verify();
+      judged = await verify(state.changedFiles);
     }
     const delta = await gitDelta();
     const outOfScope = delta ? delta.filter((f) => !scope.has(f)) : [];
-    return { ok: allOk(results), repaired, outOfScope };
+    return { ok: judged.newFailures.length === 0, repaired, outOfScope };
   };
 
   try {
+    if (!(await recordBaseline())) return finish('aborted');
     for (;;) {
       if (options.signal?.aborted) return finish('aborted');
       const status = prdStatus(prd);
@@ -600,9 +722,9 @@ export const runRalphLoop = async (
 
       // Every story passes. Regression must be green before review.
       state.phase = 'review';
-      const results = await verify();
-      if (!allOk(results)) {
-        reopenForRegression(results);
+      const judged = await verify(state.changedFiles);
+      if (judged.newFailures.length > 0) {
+        reopenForRegression(judged);
         persist();
         continue;
       }
