@@ -203,3 +203,16 @@ test('every role keeps the git guard and the nesting limit', async () => {
     assert.equal(fake.calls[0].maxDepth, undefined, agent);
   }
 });
+
+test('label defaults to the role name', async () => {
+  const fake = fakeRunner();
+  await delegate(parent, options(), { runAgent: fake.runAgent });
+  assert.deepEqual(fake.calls[0].label, { name: 'spiral-planner' });
+});
+
+test('explicit label is passed to the runner', async () => {
+  const fake = fakeRunner();
+  const label = { name: 'spiral-planner', context: 'ralplan #2' };
+  await delegate(parent, options({ label }), { runAgent: fake.runAgent });
+  assert.deepEqual(fake.calls[0].label, label);
+});

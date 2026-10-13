@@ -6,7 +6,7 @@
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
 import { Type } from 'typebox';
-import type { ParentContext } from 'pi-agent-runner';
+import { mountRunsView, type ParentContext } from 'pi-agent-runner';
 import {
   CONFIG_DIR_NAME,
   type ExtensionAPI,
@@ -211,6 +211,7 @@ const makeCheckpointHandler =
 
 export default function spiralExtension(pi: ExtensionAPI) {
   let loaded: LoadedConfig | null = null;
+  let runsView: { dispose(): void } | undefined;
   const parentOf = (ctx: ExtensionContext): ParentContext => ({
     events: pi.events,
     ctx,
@@ -288,8 +289,15 @@ export default function spiralExtension(pi: ExtensionAPI) {
   };
 
   pi.on('session_start', (_event, ctx) => {
+    runsView?.dispose();
+    runsView = mountRunsView(ctx);
     loaded = load(ctx);
     reportIssues(ctx, loaded);
+  });
+
+  pi.on('session_shutdown', () => {
+    runsView?.dispose();
+    runsView = undefined;
   });
 
   pi.registerCommand('ralplan', {

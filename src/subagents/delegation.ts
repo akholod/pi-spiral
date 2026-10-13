@@ -64,6 +64,7 @@ export interface DelegateOptions {
   timeoutMs: number;
   result: DelegationResultRequest;
   permissionAsks: PermissionAsks;
+  label?: { name: string; context?: string };
   signal?: AbortSignal;
   onUpdate?: (update: DelegationUpdate) => void;
 }
@@ -107,6 +108,7 @@ export const delegate = async (
     timeoutMs: options.timeoutMs,
     signal: options.signal,
     permissionAsks: options.permissionAsks,
+    label: options.label ?? { name: `spiral-${role}` },
     onUpdate: (update) =>
       options.onUpdate?.({
         requestId,

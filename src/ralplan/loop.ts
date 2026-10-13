@@ -133,6 +133,7 @@ const runRole = async (
       : { kind: 'text' },
     signal: options.signal,
     permissionAsks: options.permissionAsks,
+    label: { name: `spiral-${role}`, context: `ralplan #${iteration}` },
   });
   addUsage(usage, response);
   options.onProgress?.({

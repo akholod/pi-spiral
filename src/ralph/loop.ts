@@ -357,6 +357,7 @@ export const runRalphLoop = async (
     nodeId: string,
     task: string,
     schema?: Record<string, unknown>,
+    storyId?: string,
   ): Promise<DelegationResponse> => {
     const iteration = state.iterations;
     options.onProgress?.({ iteration, role, phase: 'started' });
@@ -372,6 +373,10 @@ export const runRalphLoop = async (
       result: schema ? { kind: 'structured', schema } : { kind: 'text' },
       signal: options.signal,
       permissionAsks: options.permissionAsks,
+      label: {
+        name: `spiral-${role}`,
+        context: storyId ? `ralph ${storyId}` : `ralph #${iteration}`,
+      },
     });
     addUsage(usage, response);
     state.tokensSpent +=
@@ -513,6 +518,7 @@ export const runRalphLoop = async (
   const executor = async (
     nodeId: string,
     task: string,
+    storyId?: string,
   ): Promise<ExecutorReport> =>
     asExecutorReport(
       structuredOf(
@@ -524,6 +530,7 @@ export const runRalphLoop = async (
           nodeId,
           task,
           EXECUTOR_REPORT_SCHEMA,
+          storyId,
         ),
       ),
     );
@@ -544,6 +551,7 @@ export const runRalphLoop = async (
         lastVerify,
         preexisting: preexisting(),
       }),
+      story.id,
     );
     await recordChangedFiles(report.filesChanged);
     // touched by this attempt: what it reported plus the files it added to

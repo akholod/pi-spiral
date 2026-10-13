@@ -122,6 +122,7 @@ const draftPrd = async (
       result: { kind: 'structured', schema: PRD_DRAFT_SCHEMA },
       signal: options.signal,
       permissionAsks: options.permissionAsks,
+      label: { name: 'spiral-prd', context: 'ralph #0' },
     });
     addUsage(usage, response);
     options.onProgress?.({

@@ -381,3 +381,21 @@ test('critic gets the schema verbatim, other roles plain text', async () => {
     }
   }
 });
+
+test('ralplan children are labelled spiral-<role> with the iteration', async () => {
+  const fake = fakeDelegate({
+    verdicts: [review('ITERATE'), review('APPROVE')],
+  });
+  await run(fake);
+  assert.deepEqual(
+    fake.calls.map((call) => call.label),
+    [
+      { name: 'spiral-planner', context: 'ralplan #1' },
+      { name: 'spiral-architect', context: 'ralplan #1' },
+      { name: 'spiral-critic', context: 'ralplan #1' },
+      { name: 'spiral-planner', context: 'ralplan #2' },
+      { name: 'spiral-architect', context: 'ralplan #2' },
+      { name: 'spiral-critic', context: 'ralplan #2' },
+    ],
+  );
+});

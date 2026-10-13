@@ -251,6 +251,26 @@ const run = (
     ...extra,
   });
 
+test('ralph children are labelled by role and story or iteration', async () => {
+  const fake = fakeDelegate();
+  const result = await run(fake);
+  assert.equal(result.outcome, 'completed', why(result));
+  const labels = fake.calls.map((c) => c.label);
+  assert.deepEqual(labels[0], { name: 'spiral-prd', context: 'ralph #0' });
+  assert.deepEqual(labels[1], {
+    name: 'spiral-executor',
+    context: 'ralph US-001',
+  });
+  assert.deepEqual(labels[2], {
+    name: 'spiral-executor',
+    context: 'ralph US-002',
+  });
+  assert.equal(labels[3]?.name, 'spiral-reviewer');
+  assert.match(labels[3]?.context ?? '', /^ralph #\d+$/);
+  assert.equal(labels[4]?.name, 'spiral-cleaner');
+  assert.match(labels[4]?.context ?? '', /^ralph #\d+$/);
+});
+
 test('happy path: prd -> stories -> verify -> review -> deslop -> completed', async () => {
   const fake = fakeDelegate();
   const result = await run(fake);
