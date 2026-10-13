@@ -453,7 +453,7 @@ Issue: https://github.com/akholod/pi-opium/issues/15
   Opium config; `/opium-preset <name>` and a tool to switch at runtime.
 - **Done when:** switching changes the models of new runs only.
 
-### [ ] T36. Live view of running children
+### [x] T36. Live view of running children
 
 Issue: https://github.com/akholod/pi-opium/issues/16
 
