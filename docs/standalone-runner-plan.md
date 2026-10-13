@@ -574,3 +574,30 @@ does it. Pi's built-in tools are `read`, `bash`, `edit`, `write`, `grep`,
 Effect on phase 6: T31–T33 confirmed; T34 is path rescue + search path
 guard, `/reflect`, `/deepwork` (skill, no guard); T36 gains the activity
 clock and stuck hint; T35 and T37 unchanged.
+
+## Companion window (T37, 2026-10-13)
+
+slim's companion (`oh-my-opencode-slim/docs/companion.md`,
+`src/companion/`) is a separate native Rust overlay window, released as
+per-platform binaries (macOS x64/arm64, Linux x64/arm64, Windows x64),
+downloaded with checksum checks and started detached by the plugin. Plugin
+and window talk through a locked, atomically written JSON state file. It
+shows animated tiles for up to nine agents, the live model on hover and a
+persistent waiting-for-input marker. Its menu switches project or global
+presets and opens or copies the session directory. It cannot cancel
+agents.
+
+| Companion feature                   | Pi / Opium coverage                                                 |
+| ----------------------------------- | ------------------------------------------------------------------- |
+| Running agents at a glance          | T36 widget above the editor; `agent_status`; job board              |
+| Waiting for input                   | Pi's own permission and question dialogs                            |
+| Model per agent                     | `/opium-preset` list (T35)                                          |
+| Preset switching                    | `/opium-preset`, `opium_preset` tool (T35)                          |
+| Open or copy the session directory  | Pi `/session`; trivial command if ever needed                       |
+| Always visible outside the terminal | Not covered; herdr / tmux panes are the terminal-native alternative |
+
+Decision: skip. The only uncovered feature is a window outside the
+terminal, and porting it means shipping and updating native binaries for
+five targets from an npm Pi package, plus a file IPC protocol with lock
+and stale-owner recovery. The terminal-side value (live agent list,
+presets) is already delivered by T35 and T36.

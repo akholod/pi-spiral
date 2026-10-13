@@ -398,7 +398,7 @@ Issue: https://github.com/akholod/pi-opium/issues/10
 - **Done when:** the table is in the plan and T31–T37 are confirmed or
   adjusted.
 
-### [ ] T31. Job board and idle wake
+### [x] T31. Job board and idle wake
 
 Issue: https://github.com/akholod/pi-opium/issues/11
 
@@ -410,7 +410,7 @@ Issue: https://github.com/akholod/pi-opium/issues/11
   tool that suppresses wakes until the next real user message.
 - **Done when:** tests for injection, wake, cap and `wait_for_user`.
 
-### [ ] T32. Phase reminder and council mode
+### [x] T32. Phase reminder and council mode
 
 Issue: https://github.com/akholod/pi-opium/issues/12
 
@@ -420,7 +420,7 @@ Issue: https://github.com/akholod/pi-opium/issues/12
   injection as slim does them.
 - **Done when:** tests check when each injection fires.
 
-### [ ] T33. JSON error recovery and tool loop guard
+### [x] T33. JSON error recovery and tool loop guard
 
 Issue: https://github.com/akholod/pi-opium/issues/13
 
@@ -430,7 +430,7 @@ Issue: https://github.com/akholod/pi-opium/issues/13
   detect repeated identical tool calls and nudge the model.
 - **Done when:** tests for both.
 
-### [ ] T34. Remaining portable hooks
+### [x] T34. Remaining portable hooks
 
 Issue: https://github.com/akholod/pi-opium/issues/14
 
@@ -443,7 +443,7 @@ Issue: https://github.com/akholod/pi-opium/issues/14
 - **Done when:** each ported hook has tests; skipped ones have a reason
   in the plan.
 
-### [ ] T35. Model presets
+### [x] T35. Model presets
 
 Issue: https://github.com/akholod/pi-opium/issues/15
 
@@ -467,7 +467,7 @@ Issue: https://github.com/akholod/pi-opium/issues/16
 - **Done when:** the designer's acceptance plus a manual check with three
   parallel runs.
 
-### [ ] T37. Companion window
+### [x] T37. Companion window
 
 Issue: https://github.com/akholod/pi-opium/issues/17
 
@@ -476,3 +476,4 @@ Issue: https://github.com/akholod/pi-opium/issues/17
 - **Work:** evaluate slim's companion desktop window for Pi; decide port
   or skip.
 - **Done when:** decision recorded with a reason.
+- **Decision:** skip; see the plan, "Companion window (T37)".
