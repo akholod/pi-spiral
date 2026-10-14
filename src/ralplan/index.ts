@@ -88,6 +88,7 @@ export interface ParsedRalplanArgs {
   deliberate: boolean;
   interactive: boolean;
   models: RoleModelOverrides;
+  preset?: string;
   errors: string[];
 }
 
@@ -97,8 +98,9 @@ const ROLE_FLAGS: Record<string, RoleName> = {
   '--critic': 'critic',
 };
 
-// `/ralplan [--deliberate] [--interactive] [--planner m] [--architect m]
-// [--critic m] <task>`. Model flags take a full `provider/model` id.
+// `/ralplan [--preset name] [--deliberate] [--interactive] [--planner m]
+// [--architect m] [--critic m] <task>`. Model flags take a full
+// `provider/model` id.
 export const parseRalplanArgs = (raw: string): ParsedRalplanArgs => {
   const words = raw.trim().split(/\s+/).filter(Boolean);
   const parsed: ParsedRalplanArgs = {
@@ -115,6 +117,14 @@ export const parseRalplanArgs = (raw: string): ParsedRalplanArgs => {
       parsed.deliberate = true;
     } else if (word === '--interactive') {
       parsed.interactive = true;
+    } else if (word === '--preset') {
+      const value = words[i + 1];
+      if (!value || value.startsWith('--')) {
+        parsed.errors.push('--preset requires a preset name');
+      } else {
+        parsed.preset = value;
+        i++;
+      }
     } else if (word in ROLE_FLAGS) {
       const value = words[i + 1];
       if (!value || value.startsWith('--')) {

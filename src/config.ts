@@ -63,6 +63,29 @@ export interface SpiralConfig {
   ralph: RalphConfig;
 }
 
+type PartialRole = Partial<RoleConfig>;
+
+// A preset is a partial overlay on the base config: only the knobs that
+// make sense per run (effort, models, iteration limits). Paths, state dirs,
+// verify commands and permissions stay in the base config.
+export interface Preset {
+  ralplan?: {
+    maxIterations?: number;
+    deliberate?: DeliberateMode;
+    roles?: Partial<Record<keyof RalplanConfig['roles'], PartialRole>>;
+  };
+  ralph?: {
+    maxIterations?: number;
+    deslop?: boolean;
+    reviewerAgent?: ReviewerAgent;
+    maxReviewAttempts?: number;
+    budgetTokens?: number;
+    roles?: Partial<Record<keyof RalphConfig['roles'], PartialRole>>;
+  };
+}
+
+export type PresetSource = 'built-in' | 'user' | 'project';
+
 // `inherit` = the model of the pi session that runs the command. Built-in
 // defaults never name a provider so the package works on any install; the
 // recommended Opus/GPT profile lives in spiral.config.example.jsonc.
@@ -101,6 +124,51 @@ export const DEFAULT_CONFIG: SpiralConfig = {
       executor: { model: INHERIT, thinking: 'medium', timeoutMs: 1_800_000 },
       reviewer: { model: INHERIT, thinking: 'high', timeoutMs: 900_000 },
       cleaner: { model: INHERIT, thinking: 'medium', timeoutMs: 1_200_000 },
+    },
+  },
+};
+
+// Reserved name: no preset, the merged base config as is.
+export const DEFAULT_PRESET = 'default';
+
+// No provider names: models stay whatever the base config says.
+export const BUILTIN_PRESETS: Record<string, Preset> = {
+  lite: {
+    ralplan: {
+      maxIterations: 3,
+      deliberate: 'never',
+      roles: {
+        planner: { thinking: 'low' },
+        architect: { thinking: 'low' },
+        critic: { thinking: 'medium' },
+      },
+    },
+    ralph: {
+      maxReviewAttempts: 2,
+      roles: {
+        prd: { thinking: 'medium' },
+        executor: { thinking: 'medium' },
+        reviewer: { thinking: 'medium' },
+        cleaner: { thinking: 'low' },
+      },
+    },
+  },
+  deep: {
+    ralplan: {
+      deliberate: 'always',
+      roles: {
+        planner: { thinking: 'high' },
+        architect: { thinking: 'high' },
+        critic: { thinking: 'xhigh' },
+      },
+    },
+    ralph: {
+      roles: {
+        prd: { thinking: 'high' },
+        executor: { thinking: 'high' },
+        reviewer: { thinking: 'xhigh' },
+        cleaner: { thinking: 'medium' },
+      },
     },
   },
 };
@@ -396,7 +464,132 @@ export const validateConfig = (config: SpiralConfig): ConfigIssue[] => {
   return issues;
 };
 
-export interface LoadedConfig {
+const PRESET_NAME = /^[a-z0-9][a-z0-9-]*$/;
+
+const ROLE_SHAPE = { model: '', thinking: '', timeoutMs: 0 };
+
+// Allowed keys in a preset; leaf values are placeholders for checkShape.
+const PRESET_SHAPE: PlainObject = {
+  ralplan: {
+    maxIterations: 0,
+    deliberate: '',
+    roles: {
+      planner: ROLE_SHAPE,
+      architect: ROLE_SHAPE,
+      critic: ROLE_SHAPE,
+    },
+  },
+  ralph: {
+    maxIterations: 0,
+    deslop: false,
+    reviewerAgent: '',
+    maxReviewAttempts: 0,
+    budgetTokens: 0,
+    roles: {
+      prd: ROLE_SHAPE,
+      executor: ROLE_SHAPE,
+      reviewer: ROLE_SHAPE,
+      cleaner: ROLE_SHAPE,
+    },
+  },
+};
+
+export const applyPreset = (
+  config: SpiralConfig,
+  preset: Preset,
+): SpiralConfig => deepMerge(config, preset);
+
+export interface PresetCatalog {
+  presets: Record<string, Preset>;
+  presetSources: Record<string, PresetSource>;
+  // session-independent default from the config files
+  defaultPreset?: string;
+}
+
+export const builtinCatalog = (): PresetCatalog => ({
+  presets: { ...BUILTIN_PRESETS },
+  presetSources: Object.fromEntries(
+    Object.keys(BUILTIN_PRESETS).map((name) => [name, 'built-in' as const]),
+  ),
+});
+
+// Preset names a user can pick, `default` first.
+export const presetNames = (catalog: PresetCatalog): string[] => [
+  DEFAULT_PRESET,
+  ...Object.keys(catalog.presets).sort(),
+];
+
+// Every preset applied onto `base` must be a valid config. Issues already
+// present in `base` are not blamed on the preset.
+const validatePresets = (
+  base: SpiralConfig,
+  presets: Record<string, Preset>,
+  issues: ConfigIssue[],
+): void => {
+  const known = new Set(
+    validateConfig(base).map((i) => `${i.path}\0${i.message}`),
+  );
+  for (const [name, preset] of Object.entries(presets)) {
+    const merged = applyPreset(base, preset);
+    for (const issue of validateConfig(merged)) {
+      if (known.has(`${issue.path}\0${issue.message}`)) continue;
+      issues.push({
+        path: `presets.${name}.${issue.path}`,
+        message: issue.message,
+      });
+    }
+  }
+};
+
+const isKnownPreset = (catalog: PresetCatalog, name: string): boolean =>
+  name === DEFAULT_PRESET || Object.hasOwn(catalog.presets, name);
+
+export interface PresetSelection {
+  // explicit per-run choice (`--preset`, tool param); `default` = none
+  requested?: string;
+  // `/spiral-preset` choice for this session; ignored when stale
+  session?: string;
+}
+
+export interface ResolvedPreset {
+  config: SpiralConfig;
+  // undefined = base config
+  preset: string | undefined;
+  error?: string;
+}
+
+// Precedence: requested > session > defaultPreset > none. Per-role model
+// flags are applied by the callers on top of the returned config.
+export const resolvePreset = (
+  config: SpiralConfig,
+  catalog: PresetCatalog,
+  selection: PresetSelection = {},
+): ResolvedPreset => {
+  const { requested, session } = selection;
+  let name: string | undefined;
+  if (requested !== undefined) {
+    if (!isKnownPreset(catalog, requested)) {
+      return {
+        config,
+        preset: undefined,
+        error: `unknown preset "${requested}"; available: ${presetNames(
+          catalog,
+        ).join(', ')}`,
+      };
+    }
+    name = requested;
+  } else if (session !== undefined && isKnownPreset(catalog, session)) {
+    name = session;
+  } else {
+    name = catalog.defaultPreset;
+  }
+  if (name === undefined || name === DEFAULT_PRESET) {
+    return { config, preset: undefined };
+  }
+  return { config: applyPreset(config, catalog.presets[name]), preset: name };
+};
+
+export interface LoadedConfig extends PresetCatalog {
   config: SpiralConfig;
   sources: string[];
   issues: ConfigIssue[];
@@ -428,6 +621,47 @@ const readConfigFile = (path: string, issues: ConfigIssue[]): unknown => {
   return parsed;
 };
 
+// `presets` and `defaultPreset` live beside the config keys but are not part
+// of SpiralConfig; they are peeled off before the shape check and merge.
+const splitPresetKeys = (
+  raw: unknown,
+): { presets: unknown; defaultPreset: unknown; rest: unknown } => {
+  if (!isPlainObject(raw)) {
+    return { presets: undefined, defaultPreset: undefined, rest: raw };
+  }
+  const { presets, defaultPreset, ...rest } = raw;
+  return { presets, defaultPreset, rest };
+};
+
+// Same-named presets replace each other whole (built-in < user < project).
+const mergePresets = (
+  catalog: PresetCatalog,
+  raw: unknown,
+  source: PresetSource,
+  issues: ConfigIssue[],
+): void => {
+  if (raw === undefined) return;
+  if (!isPlainObject(raw)) {
+    issues.push({ path: 'presets', message: 'must be an object' });
+    return;
+  }
+  for (const [name, preset] of Object.entries(raw)) {
+    const path = `presets.${name}`;
+    if (name === DEFAULT_PRESET) {
+      issues.push({ path, message: `"${DEFAULT_PRESET}" is reserved` });
+    } else if (!PRESET_NAME.test(name)) {
+      issues.push({ path, message: 'name must match [a-z0-9][a-z0-9-]*' });
+    } else {
+      const before = issues.length;
+      checkShape(preset, PRESET_SHAPE, path, issues);
+      if (issues.length === before) {
+        catalog.presets[name] = preset as Preset;
+        catalog.presetSources[name] = source;
+      }
+    }
+  }
+};
+
 // Fail-closed: any parse, shape or value issue makes the whole result fall
 // back to DEFAULT_CONFIG. Callers show `issues` and must refuse to run the
 // loop when `fallback` is set unless the user explicitly accepts defaults.
@@ -445,16 +679,44 @@ export const loadConfig = (
     paths.push(getProjectConfigPath(cwd, configDirName));
   }
   let config: SpiralConfig = DEFAULT_CONFIG;
-  for (const path of paths) {
+  const catalog = builtinCatalog();
+  const sourceKinds: PresetSource[] = ['user', 'project'];
+  for (const [index, path] of paths.entries()) {
     const raw = readConfigFile(path, issues);
     if (raw === undefined) continue;
     sources.push(path);
-    checkShape(raw, DEFAULT_CONFIG as unknown as PlainObject, '', issues);
-    config = deepMerge(config, raw);
+    const { presets, defaultPreset, rest } = splitPresetKeys(raw);
+    mergePresets(catalog, presets, sourceKinds[index], issues);
+    if (defaultPreset !== undefined) {
+      if (typeof defaultPreset === 'string') {
+        catalog.defaultPreset = defaultPreset;
+      } else {
+        issues.push({ path: 'defaultPreset', message: 'must be a string' });
+      }
+    }
+    checkShape(rest, DEFAULT_CONFIG as unknown as PlainObject, '', issues);
+    config = deepMerge(config, rest);
   }
   issues.push(...validateConfig(config));
-  if (issues.length > 0) {
-    return { config: DEFAULT_CONFIG, sources, issues, fallback: true };
+  if (issues.length === 0) {
+    validatePresets(config, catalog.presets, issues);
+    const { defaultPreset } = catalog;
+    if (defaultPreset !== undefined && !isKnownPreset(catalog, defaultPreset)) {
+      issues.push({
+        path: 'defaultPreset',
+        message: `unknown preset "${defaultPreset}"`,
+      });
+    }
   }
-  return { config, sources, issues, fallback: false };
+  if (issues.length > 0) {
+    // presets are kept (built-ins only) so `/spiral-preset` still lists them
+    return {
+      config: DEFAULT_CONFIG,
+      sources,
+      issues,
+      fallback: true,
+      ...builtinCatalog(),
+    };
+  }
+  return { config, sources, issues, fallback: false, ...catalog };
 };

@@ -18,7 +18,15 @@ import {
   type ExtensionCommandContext,
   type ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
-import { loadConfig, type LoadedConfig } from '../src/config.ts';
+import {
+  builtinCatalog,
+  DEFAULT_PRESET,
+  loadConfig,
+  presetNames,
+  resolvePreset,
+  type LoadedConfig,
+  type ResolvedPreset,
+} from '../src/config.ts';
 import {
   applyModelOverrides,
   parseRalplanArgs,
@@ -89,13 +97,28 @@ const summarize = (result: RalplanResult): string => {
 };
 
 const USAGE =
-  'Usage: /ralplan [--deliberate] [--interactive] [--planner m] ' +
-  '[--architect m] [--critic m] <task>';
+  'Usage: /ralplan [--preset name] [--deliberate] [--interactive] ' +
+  '[--planner m] [--architect m] [--critic m] <task>';
 
 const RALPH_USAGE =
-  'Usage: /ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan ' +
-  '<artifact>] [--resume [runId]] [--prd m] [--executor m] [--reviewer m] ' +
-  '[--cleaner m] <task>';
+  'Usage: /ralph [--preset name] [--no-deslop] [--reviewer-agent ' +
+  'critic|architect] [--plan <artifact>] [--resume [runId]] [--prd m] ' +
+  '[--executor m] [--reviewer m] [--cleaner m] <task>';
+
+const PRESET_PARAM = Type.String({
+  description:
+    'Name of a configured or built-in preset (e.g. lite, deep) that sets ' +
+    'role thinking/models and loop limits; "default" = none',
+});
+
+const presetLabel = (resolved: ResolvedPreset): string =>
+  resolved.preset ? ` (preset ${resolved.preset})` : '';
+
+const notStarted = (label: 'ralplan' | 'ralph', error: string) => ({
+  content: [{ type: 'text' as const, text: `${label} not started: ${error}` }],
+  details: { outcome: 'not_started' },
+  isError: true,
+});
 
 const formatRalphProgress = (progress: RalphProgress): string =>
   `[ralph] iteration ${progress.iteration}: ${progress.role} ${progress.phase}${
@@ -226,6 +249,27 @@ export default function spiralExtension(pi: ExtensionAPI) {
   // stop them: a slash-command ctx.signal is usually undefined.
   const running = new Set<AbortController>();
 
+  // `/spiral-preset` choice; in memory, reset on session_start.
+  let sessionPreset: string | undefined;
+
+  // Preset in effect for one run: explicit > session > defaultPreset.
+  const resolveFor = (cfg: LoadedConfig, requested?: string): ResolvedPreset =>
+    resolvePreset(cfg.config, cfg, { requested, session: sessionPreset });
+
+  // Completes the name after `--preset `; value replaces the whole argument
+  // text (pi passes the full argument string as the prefix).
+  const completePreset = (argumentPrefix: string) => {
+    const match = /(^|\s)--preset\s+(\S*)$/.exec(argumentPrefix);
+    if (!match) return null;
+    const typed = match[2];
+    const head = argumentPrefix.slice(0, argumentPrefix.length - typed.length);
+    const names = presetNames(loaded ?? builtinCatalog());
+    const items = names
+      .filter((name) => name.startsWith(typed))
+      .map((name) => ({ value: `${head}${name}`, label: name }));
+    return items.length > 0 ? items : null;
+  };
+
   // Advisory preflight warnings are shown once per session.
   const warned = new Set<string>();
 
@@ -298,6 +342,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
   pi.on('session_start', (_event, ctx) => {
     runsView?.dispose();
     runsView = mountRunsView(ctx);
+    sessionPreset = undefined;
     loaded = load(ctx);
     reportIssues(ctx, loaded);
   });
@@ -313,6 +358,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
     description:
       'Consensus planning: planner -> architect -> critic loop, writes a ' +
       'plan artifact',
+    getArgumentCompletions: completePreset,
     handler: async (args, ctx) => {
       const parsed = parseRalplanArgs(args);
       if (parsed.errors.length > 0 || parsed.task === '') {
@@ -325,10 +371,15 @@ export default function spiralExtension(pi: ExtensionAPI) {
         ctx.ui.notify('[ralplan] not started: fix spiral.json first', 'error');
         return;
       }
+      const effective = resolveFor(cfg, parsed.preset);
+      if (effective.error) {
+        ctx.ui.notify(`[ralplan] not started: ${effective.error}`, 'error');
+        return;
+      }
       const errors = preflight(
         ctx,
         'ralplan',
-        applyModelOverrides(cfg.config.ralplan, parsed.models).roles,
+        applyModelOverrides(effective.config.ralplan, parsed.models).roles,
         ['planner', 'critic'],
       );
       if (errors.length > 0) {
@@ -339,7 +390,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
         return;
       }
       ctx.ui.notify(
-        `[ralplan] planning: ${parsed.task} (stop with /ralplan-cancel)`,
+        `[ralplan] planning${presetLabel(effective)}: ${parsed.task} ` +
+          '(stop with /ralplan-cancel)',
         'info',
       );
       const controller = startRun(ctx.signal);
@@ -347,8 +399,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       try {
         result = await runRalplan({
           parent: parentOf(ctx),
-          permissionAsks: cfg.config.permissionAsks,
-          config: cfg.config.ralplan,
+          permissionAsks: effective.config.permissionAsks,
+          config: effective.config.ralplan,
           cwd: ctx.cwd,
           task: parsed.task,
           deliberate: parsed.deliberate,
@@ -413,6 +465,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
           { description: 'Per-role model overrides as provider/model ids' },
         ),
       ),
+      preset: Type.Optional(PRESET_PARAM),
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       loaded = load(ctx);
@@ -431,10 +484,12 @@ export default function spiralExtension(pi: ExtensionAPI) {
           isError: true,
         };
       }
+      const effective = resolveFor(loaded, params.preset);
+      if (effective.error) return notStarted('ralplan', effective.error);
       const errors = preflight(
         ctx,
         'ralplan',
-        applyModelOverrides(loaded.config.ralplan, params.models).roles,
+        applyModelOverrides(effective.config.ralplan, params.models).roles,
         ['planner', 'critic'],
       );
       if (errors.length > 0) {
@@ -453,8 +508,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const result = await runRalplan({
         parent: parentOf(ctx),
-        permissionAsks: loaded.config.permissionAsks,
-        config: loaded.config.ralplan,
+        permissionAsks: effective.config.permissionAsks,
+        config: effective.config.ralplan,
         cwd: ctx.cwd,
         task: params.task,
         deliberate: params.deliberate === true,
@@ -497,6 +552,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
     description:
       'PRD-driven persistence loop: draft stories, implement + verify ' +
       'each, independent review, deslop pass',
+    getArgumentCompletions: completePreset,
     handler: async (args, ctx) => {
       const parsed = parseRalphArgs(args);
       if (parsed.errors.length > 0) {
@@ -509,10 +565,15 @@ export default function spiralExtension(pi: ExtensionAPI) {
         ctx.ui.notify('[ralph] not started: fix spiral.json first', 'error');
         return;
       }
+      const effective = resolveFor(cfg, parsed.preset);
+      if (effective.error) {
+        ctx.ui.notify(`[ralph] not started: ${effective.error}`, 'error');
+        return;
+      }
       const errors = preflight(
         ctx,
         'ralph',
-        applyRalphModelOverrides(cfg.config.ralph, parsed.models).roles,
+        applyRalphModelOverrides(effective.config.ralph, parsed.models).roles,
         ['executor', 'reviewer'],
       );
       if (errors.length > 0) {
@@ -520,10 +581,11 @@ export default function spiralExtension(pi: ExtensionAPI) {
         ctx.ui.notify('[ralph] not started: fix role models first', 'error');
         return;
       }
+      const tag = presetLabel(effective);
       ctx.ui.notify(
         parsed.resume
-          ? `[ralph] resuming ${parsed.resume} (stop with /ralph-cancel)`
-          : `[ralph] starting: ${parsed.task} (stop with /ralph-cancel)`,
+          ? `[ralph] resuming${tag} ${parsed.resume} (stop with /ralph-cancel)`
+          : `[ralph] starting${tag}: ${parsed.task} (stop with /ralph-cancel)`,
         'info',
       );
       const controller = new AbortController();
@@ -535,8 +597,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       try {
         result = await runRalph({
           parent: parentOf(ctx),
-          permissionAsks: cfg.config.permissionAsks,
-          config: cfg.config.ralph,
+          permissionAsks: effective.config.permissionAsks,
+          config: effective.config.ralph,
           agentDir: getAgentDir(),
           cwd: ctx.cwd,
           task: parsed.task,
@@ -646,6 +708,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
           { description: 'Per-role model overrides as provider/model ids' },
         ),
       ),
+      preset: Type.Optional(PRESET_PARAM),
     }),
     async execute(_toolCallId, params, signal, onUpdate, ctx) {
       loaded = load(ctx);
@@ -664,10 +727,12 @@ export default function spiralExtension(pi: ExtensionAPI) {
           isError: true,
         };
       }
+      const effective = resolveFor(loaded, params.preset);
+      if (effective.error) return notStarted('ralph', effective.error);
       const errors = preflight(
         ctx,
         'ralph',
-        applyRalphModelOverrides(loaded.config.ralph, params.models).roles,
+        applyRalphModelOverrides(effective.config.ralph, params.models).roles,
         ['executor', 'reviewer'],
       );
       if (errors.length > 0) {
@@ -686,8 +751,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const result = await runRalph({
         parent: parentOf(ctx),
-        permissionAsks: loaded.config.permissionAsks,
-        config: loaded.config.ralph,
+        permissionAsks: effective.config.permissionAsks,
+        config: effective.config.ralph,
         agentDir: getAgentDir(),
         cwd: ctx.cwd,
         task: params.task,
@@ -718,10 +783,65 @@ export default function spiralExtension(pi: ExtensionAPI) {
     },
   });
 
+  pi.registerCommand('spiral-preset', {
+    description:
+      'Set the session preset for /ralplan and /ralph ("default" clears it)',
+    getArgumentCompletions: (prefix) => {
+      const items = presetNames(loaded ?? builtinCatalog())
+        .filter((name) => name.startsWith(prefix.trim()))
+        .map((name) => ({ value: name, label: name }));
+      return items.length > 0 ? items : null;
+    },
+    handler: async (args, ctx) => {
+      loaded = load(ctx);
+      const names = presetNames(loaded);
+      let name = args.trim();
+      if (name === '') {
+        const current = sessionPreset ?? DEFAULT_PRESET;
+        const options = new Map<string, string>();
+        for (const candidate of names) {
+          const source =
+            candidate === DEFAULT_PRESET
+              ? 'base config'
+              : loaded.presetSources[candidate];
+          const mark = candidate === current ? ' [current]' : '';
+          options.set(`${candidate} (${source})${mark}`, candidate);
+        }
+        const choice = await ctx.ui.select('Spiral preset', [
+          ...options.keys(),
+        ]);
+        const picked = choice === undefined ? undefined : options.get(choice);
+        if (picked === undefined) return;
+        name = picked;
+      }
+      if (!names.includes(name)) {
+        ctx.ui.notify(
+          `[spiral] unknown preset "${name}"; available: ${names.join(', ')}`,
+          'error',
+        );
+        return;
+      }
+      sessionPreset = name === DEFAULT_PRESET ? undefined : name;
+      const fallback = loaded.defaultPreset
+        ? `defaultPreset ${loaded.defaultPreset} applies`
+        : 'base config';
+      ctx.ui.notify(
+        sessionPreset
+          ? `[spiral] session preset: ${sessionPreset}`
+          : `[spiral] session preset cleared (${fallback})`,
+        'info',
+      );
+    },
+  });
+
   pi.registerCommand('spiral-config', {
     description: 'Show the effective Spiral configuration and its sources',
     handler: async (_args, ctx) => {
       loaded = load(ctx);
+      const effective = resolveFor(loaded);
+      const available = presetNames(loaded)
+        .map((name) => `${name} (${loaded?.presetSources[name] ?? 'base'})`)
+        .join(', ');
       const text = [
         'sources: ' +
           `${
@@ -733,7 +853,11 @@ export default function spiralExtension(pi: ExtensionAPI) {
         loaded.fallback
           ? 'EFFECTIVE: built-in defaults (config invalid)'
           : 'EFFECTIVE: merged config',
-        JSON.stringify(loaded.config, null, 2),
+        `active preset: ${effective.preset ?? DEFAULT_PRESET}`,
+        `defaultPreset: ${loaded.defaultPreset ?? 'none'}`,
+        `available presets: ${available}`,
+        'effective config (after active preset):',
+        JSON.stringify(effective.config, null, 2),
         ...loaded.issues.map(
           (issue) => `issue: ${issue.path}: ${issue.message}`,
         ),

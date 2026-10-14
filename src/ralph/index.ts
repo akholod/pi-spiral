@@ -405,8 +405,8 @@ export const runRalph = async (options: RalphOptions): Promise<RalphResult> => {
 
 // ---------------------------------------------------------------------------
 // `/ralph [--no-deslop] [--reviewer-agent critic|architect] [--plan <path>]
-// [--resume [runId]] [--prd m] [--executor m] [--reviewer m] [--cleaner m]
-// <task>`
+// [--resume [runId]] [--preset name] [--prd m] [--executor m] [--reviewer m]
+// [--cleaner m] <task>`
 
 export interface ParsedRalphArgs {
   task: string;
@@ -415,6 +415,7 @@ export interface ParsedRalphArgs {
   noDeslop: boolean;
   reviewerAgent?: ReviewerAgent;
   models: RalphModelOverrides;
+  preset?: string;
   errors: string[];
 }
 
@@ -463,6 +464,12 @@ export const parseRalphArgs = (raw: string): ParsedRalphArgs => {
       const value = valueOf(i, word);
       if (value) {
         parsed.plan = value;
+        i++;
+      }
+    } else if (word === '--preset') {
+      const value = valueOf(i, word);
+      if (value) {
+        parsed.preset = value;
         i++;
       }
     } else if (word === '--reviewer-agent') {

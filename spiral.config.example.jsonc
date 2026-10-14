@@ -17,6 +17,75 @@
   // still pass.
   "permissionAsks": "forward",
 
+  // Preset used when --preset and /spiral-preset are not given. Built-in
+  // presets: "lite" (low effort, fewer rounds) and "deep" (deliberate mode,
+  // high/xhigh thinking). "default" or unset = this file as is.
+  "defaultPreset": "default",
+
+  // Named partial overlays, selected with `/ralplan --preset <name>`,
+  // `/ralph --preset <name>` or `/spiral-preset <name>`. Allowed keys per
+  // workflow: maxIterations, deliberate / deslop, reviewerAgent,
+  // maxReviewAttempts, budgetTokens, roles.<role>.{model,thinking,timeoutMs}.
+  // A preset with the same name replaces a built-in or user preset entirely.
+  "presets": {
+    "deep": {
+      "ralplan": {
+        "deliberate": "always",
+        "roles": {
+          "planner": {
+            "model": "claude-bridge/claude-opus-5",
+            "thinking": "xhigh",
+          },
+          "critic": {
+            "model": "openai-codex/gpt-5.6-sol",
+            "thinking": "xhigh",
+          },
+        },
+      },
+      "ralph": {
+        "roles": {
+          "executor": {
+            "model": "claude-bridge/claude-opus-5",
+            "thinking": "high",
+          },
+          "reviewer": {
+            "model": "openai-codex/gpt-6-sol",
+            "thinking": "xhigh",
+          },
+        },
+      },
+    },
+    "lite": {
+      "ralplan": {
+        "deliberate": "never",
+        "maxIterations": 3,
+        "roles": {
+          "planner": {
+            "model": "claude-bridge/claude-opus-5",
+            "thinking": "low",
+          },
+          "critic": {
+            "model": "openai-codex/gpt-5.6-sol",
+            "thinking": "medium",
+          },
+        },
+      },
+      "ralph": {
+        "maxReviewAttempts": 2,
+        "roles": {
+          "executor": {
+            "model": "claude-bridge/claude-opus-5",
+            "thinking": "medium",
+          },
+          "reviewer": {
+            "model": "openai-codex/gpt-6-sol",
+            "thinking": "medium",
+          },
+        },
+      },
+    },
+  },
+
   "ralplan": {
     // Planner -> architect -> critic rounds. Hard cap 5 (OMC reference);
     // higher values invalidate the file.

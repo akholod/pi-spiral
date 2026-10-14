@@ -81,6 +81,15 @@ config carries the recommended Opus / GPT-5.6 Sol profile. Preflight
 `ctx.modelRegistry` before the first child and warns once per session when
 the critic shares the planner's model.
 
+Presets (`presets`, `defaultPreset`) are partial overlays on the merged
+config, limited to role settings and loop limits; same-named presets replace
+each other whole (built-in < user < project). Every preset is validated
+applied onto the base config, so a bad preset fails the load like any other
+issue. Resolution order: per-role model flags > `--preset` / tool `preset` >
+session `/spiral-preset` > `defaultPreset` > merged base > `DEFAULT_CONFIG`.
+`resolvePreset` is pure; the extension applies it before preflight so the
+effective models are what gets checked.
+
 ## Artifact
 
 `.spiral/plans/<timestamp>-<slug>.md` with YAML frontmatter (`status`,
