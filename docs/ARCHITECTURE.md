@@ -1,170 +1,81 @@
-# Spiral architecture
+# How Spiral works
 
-## Goal
+Spiral ports `ralplan` and `ralph` from
+[oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode) (OMC) to
+pi. Role prompts in `agents/*.md` come from OMC's planner, architect, critic,
+executor and cleaner, with Momus's "approve when a capable developer can
+execute" bias folded into the critic.
 
-Bring oh-my-claudecode's `ralplan` (consensus planning) and later `ralph`
-(persistent execution) to pi as one installable package, with every role's
-model configurable.
+## The loop is code, not a prompt
 
-## Sources studied
+In OMC a skill _tells_ the main agent to run the loop. Models drift from such
+instructions: they run reviews in parallel, skip a round, or show the critic
+the architect's notes. Spiral runs the loop in TypeScript, so the order and
+the information flow are guaranteed (ADR 0001, 0003).
 
-| Source                                                                          | What was taken                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `oh-my-claudecode/skills/ralplan/SKILL.md`                                      | The loop contract: Planner → Architect → Critic, independent sequential reviews of one fixed snapshot, Planner-only synthesis, max 5 iterations, `pending approval` boundary, short vs deliberate mode, RALPLAN-DR structure, ADR in the final plan.                                                                                                                                                                                                                |
-| `oh-my-claudecode/agents/{planner,architect,critic}.md`, `skills/plan/SKILL.md` | Role prompts ported in full to `agents/*.md` (critic: pre-commitment, assumptions, pre-mortem, dependency/ambiguity/feasibility/rollback audits, executor/stakeholder/skeptic perspectives, gap analysis, self-audit, realist check, adversarial escalation, four ralplan gates; architect: consensus addendum; planner: plan output format incl. changelog on revision). Critic verdict is structured JSON mirroring OMC's Output_Format (`CRITIC_REVIEW_SCHEMA`). |
-| `oh-my-claudecode/skills/ralph/SKILL.md`                                        | PRD/story model reserved for phase 2 (`src/ralph`).                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `oh-my-openagent` Prometheus / Momus / Metis                                    | Momus's "approval bias" (approve when a capable developer can execute; MINOR never blocks) is folded into the critic prompt. Metis (pre-planning intent classification) is folded into the planner's step 1. A separate Metis pass is a possible phase 3.                                                                                                                                                                                                           |
-| Pi SDK (`createAgentSession`), pi-agent-runner                                  | In-process child sessions with per-request model and thinking, `submit_result` structured output, tool allowlists and guards (ADR 0004).                                                                                                                                                                                                                                                                                                                            |
+Each role is a child pi session started through
+[pi-agent-runner](https://github.com/akholod/pi-agent-runner)
+(`src/subagents/delegation.ts`, ADR 0004). The role prompt replaces pi's
+system prompt. Planner, architect, critic and reviewer get read-only tools
+(`read, grep, find, ls`, no shell). Executor and cleaner get pi's normal
+tools; git push, `reset --hard` and similar commands are blocked.
 
-## Key decision: the loop is code, not prompt
+## ralplan
 
-OMC implements ralplan as a skill: the main agent is _told_ to run the loop
-and spawn Task calls in the right order. That works in Claude Code but is
-fragile (the model may parallelize the reviews, skip a round, or leak the
-Architect review to the Critic).
-
-Spiral runs the loop in TypeScript (`src/ralplan/loop.ts`). The invariants
-are enforced by code:
-
-1. Planner produces a plan snapshot (plain Markdown text).
-2. Architect reviews that exact string. Critic reviews that exact string,
-   after the Architect finishes, without receiving the Architect output.
-3. Only the Planner receives both reviews, in the next round.
-4. Stop at a clean Critic `APPROVE` (no CRITICAL/MAJOR findings, all four
-   ralplan gates pass; otherwise downgraded to ITERATE in code) or after
-   `maxIterations`.
-5. No project mutation; the only write is the artifact.
-
-See ADR 0001 for the alternatives considered.
-
-## Runtime flow
-
-```
-/ralplan <task>  or  tool ralplan({task})
-   │
-   ▼
-loadConfig(cwd)  <pi agent dir>/spiral.json  <-  .pi/spiral.json
-                 (pi agent dir: ~/.pi/agent or PI_CODING_AGENT_DIR)
-   │
-   ▼
-detectPlanMode(task)  short | deliberate
-   │
-   ▼
-for i in 1..maxIterations
-   ├─ delegate(spiral-planner,   model=roles.planner)   -> plan (text)
-   ├─ delegate(spiral-architect, model=roles.architect) -> review (text)
-   ├─ delegate(spiral-critic,    model=roles.critic)    -> CriticReview (structured JSON)
-   └─ APPROVE ? break : continue with both reviews fed to the planner
-   │
-   ▼
-write .spiral/plans/<ts>-<slug>.md  (frontmatter: status: pending approval)
-   │
-   ▼
-pi.sendMessage summary (no turn trigger)  /  tool result
+```text
+for round in 1..maxIterations (≤ 5)
+  planner   -> plan (text)
+  architect -> review of that exact plan
+  critic    -> structured verdict on the same plan, never sees the architect
+  clean APPROVE ? stop : planner gets both reviews next round
+write .spiral/plans/<ts>-<slug>.md   status: pending approval
 ```
 
-Each `delegate` call is one in-process child run through pi-agent-runner's
-`runAgent` (`src/subagents/delegation.ts`) with the role's model and
-thinking level from config. Roles come from a table in code
-(`src/subagents/roles.ts`): the role prompt replaces Pi's system prompt,
-and planner, architect and critic get read-only tools (`read, grep, find,
-ls`; no shell, since tool restrictions are not an OS sandbox). See ADR 0004.
-
-## Config
-
-Two files, JSONC, deep-merged with project precedence. One `RoleConfig`
-shape (`model`, `thinking`, `timeoutMs`) is reused by every role in both
-workflows so phase 2 needs no migration. Defaults: `inherit` (session
-model) for every role so the package runs on any pi install; the example
-config carries the recommended Opus / GPT-5.6 Sol profile. Preflight
-(`src/ralplan/preflight.ts`) checks explicit models against
-`ctx.modelRegistry` before the first child and warns once per session when
-the critic shares the planner's model.
-
-Presets (`presets`, `defaultPreset`) are partial overlays on the merged
-config, limited to role settings and loop limits; same-named presets replace
-each other whole (built-in < user < project). Every preset is validated
-applied onto the base config, so a bad preset fails the load like any other
-issue. Resolution order: per-role model flags > `--preset` / tool `preset` >
-session `/spiral-preset` > `defaultPreset` > merged base > `DEFAULT_CONFIG`.
-`resolvePreset` is pure; the extension applies it before preflight so the
-effective models are what gets checked.
-
-## Artifact
-
-`.spiral/plans/<timestamp>-<slug>.md` with YAML frontmatter (`status`,
-`mode`, `iterations`) followed by the final plan and a collapsible review
-history per iteration. When the loop exhausts 5 rounds the best (latest)
-version is written and the status says so.
-
-## Open items before the first real run
-
-1. **Delegation from a command handler.** Resolved: the runner creates
-   children from a command handler and from a tool `execute` (ADR 0004).
-2. **Identity.** `ownerRunId` is a UUID per ralplan run, node ids are
-   unique per (iteration, role, feedback round); they label progress and
-   responses.
-3. **Structured output for the critic on GPT-Sol.** Resolved: the runner's
-   `submit_result` works on openai-codex, opencode-go and claude-bridge.
-4. **`--interactive`.** Implemented for `/ralplan` (draft checkpoint:
-   proceed / request changes / skip review; final checkpoint: approve /
-   request changes / reject, OMC steps 2 and 6). The `ralplan` tool has no
-   dialogs and ignores the flag. UI not yet exercised live.
-5. **Progress UX.** `ctx.ui.notify` per role is noisy; consider a widget
-   via `ctx.ui.setWidget`.
-6. **Cost.** Usage from every child (`DelegationResponse.usage`) is
-   aggregated into the summary and the artifact frontmatter; no budget
-   cap yet.
-7. **Per-run role models.** `--planner|--architect|--critic <model>` on the
-   command, `models` on the tool.
+- APPROVE counts only with no CRITICAL/MAJOR findings and all four gates
+  passing; otherwise code downgrades it to ITERATE (`src/ralplan/loop.ts`).
+- Deliberate mode (pre-mortem, wider test plan) turns on for risky tasks
+  or `--deliberate`.
+- Nothing in the project changes; the plan file is the only write.
+- After 5 rounds without approval the latest plan is written and marked so.
 
 ## ralph
 
-Design in ADR 0003. Runtime flow:
-
-```
-/ralph [--plan artifact] <task>   or   tool ralph({task, plan})
-   │
-   ▼
-delegate(spiral-planner, roles.prd) -> PrdDraft (structured)   [retry once if generic]
-   │   verify commands: config.verify, else PRD proposal after user confirm, else none
-   │   <pi agent dir>/spiral/ralph/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
-   ▼
-loop (one active run per project; every persist checks integrity.json)
-   ├─ next story with passes=false ?  (iterations < maxIterations else exhausted)
-   │    ├─ delegate(spiral-executor, roles.executor) -> ExecutorReport
-   │    ├─ apply amendments (ledger), collect changed files (report + git delta)
-   │    ├─ run verify commands
-   │    └─ every criterion met WITH evidence + green ? passes=true : notes, retry (3 -> blocked)
-   └─ all pass ?
-        ├─ run verify; red -> RV-nnn regression story, back to stories
-        ├─ reviewRounds < maxReviewAttempts else exhausted
-        ├─ delegate(spiral-critic|architect, roles.reviewer) -> ReviewReport
-        ├─ normalize: every criterion VERIFIED with evidence, no CRITICAL/MAJOR
-        ├─ REJECT -> re-open named stories / add RV-nnn story, continue
-        └─ APPROVE -> deslop? delegate(spiral-cleaner) on changed files
-                     -> verify again (2 executor repair attempts)
-                     -> git delta outside scope ? failed
-                     -> repaired ? back to review : completed
+```text
+prd role -> stories with acceptance criteria (prd.json)
+for each open story
+  executor implements it
+  loop runs the verify commands, compares with the baseline
+  every criterion met with evidence ? pass : retry (3 misses -> blocked)
+all pass -> reviewer checks every criterion
+  REJECT -> reopen stories, continue
+  APPROVE -> cleaner tidies changed files -> verify again -> done
 ```
 
-The loop owns every state file and detects external edits (it cannot
-prevent them: writer children have a shell). Nothing is committed by the
-loop, and a moved HEAD is reported. `--resume [runId]` reloads `prd.json`
-and `run.json` (UUID only, not for completed runs, drift needs explicit
-consent) and continues. `src/ralph/prd.ts` holds the PRD model with the
-evidence-preserving amendment ledger (OMC ADR 03664), `state.ts` the run
-files and progress rendering, `verify.ts` the shell runner and git delta,
-`prompts.ts` the role tasks, `loop.ts` the invariants.
+- Verify commands come from `ralph.verify`, or the PRD proposes them and
+  you confirm.
+- Failures that existed before the run are recorded once and don't block;
+  only new ones do (`src/ralph/baseline.ts`).
+- State lives outside the project in `<pi agent dir>/spiral/ralph/<project>/<runId>/`.
+  The loop owns it and detects outside edits (`integrity.json`).
+  `--resume` continues a stopped run.
+- ralph never commits. A moved HEAD is reported.
+- Limits: `maxIterations` story attempts, `maxReviewAttempts` review rounds,
+  optional `budgetTokens`.
 
-Deviations from OMC, on purpose: no story-level architect gate (one
-completion review over all stories, as the skill's step 7 describes); the
-review budget ends in `exhausted` instead of OMC's force-accept; no
-stale-PRD reconciliation, `/goal` policies or company context.
+Different from OMC on purpose: one review over all stories instead of a gate
+per story; a spent review budget ends as `exhausted` instead of a forced
+accept.
 
-## Phase 3 ideas
+## Config and presets
 
-- Metis-style pre-planning interview (`--interactive`).
-- `/ralplan --architect codex` style per-run role overrides.
-- Auto-gate: intercept vague "ralph ..." prompts and redirect to ralplan
-  (OMC's pre-execution gate) via `pi.on('input', ...)`.
+`<pi agent dir>/spiral.json` (user) and `.pi/spiral.json` (project, only in
+trusted projects) merge key by key over built-in defaults (`src/config.ts`).
+Any invalid value rejects the whole config: the commands ask before falling
+back to defaults, the tools refuse to start. Every role defaults to `inherit`, so a fresh install works with
+whatever model the session has.
+
+A preset is a partial overlay of roles and loop limits. Same-named presets
+replace each other whole: built-in, then user, then project. Precedence for a
+run: per-role model flags > `--preset` > `/spiral-preset` > `defaultPreset` >
+base config. Models are checked against pi's registry before the first child
+starts (`src/ralplan/preflight.ts`).

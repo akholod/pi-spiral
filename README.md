@@ -1,17 +1,20 @@
+![pi-spiral: code-enforced planning and execution loops for pi](assets/hero.webp)
+
 # pi-spiral
 
-Pi extension with two workflows ported from oh-my-claudecode:
+Ask an agent to build something non-trivial and it grades its own homework:
+the plan goes unchallenged, "done" means "I think it works", and long tasks
+drift. Spiral adds two loops to [pi](https://github.com/earendil-works/pi)
+that fix this with independent reviewers and real checks.
 
-- **ralplan** — consensus planning: planner drafts, architect and critic
-  review independently, up to 5 rounds. Output is a plan artifact marked
-  `pending approval`. Nothing is executed.
-- **ralph** — PRD-driven execution: stories with testable acceptance
-  criteria, an executor per story, regression commands run by the loop,
-  independent reviewer, deslop pass. Never commits.
+- **`/ralplan`** — a planner writes the plan, an architect and a critic
+  pick it apart, up to 5 rounds. You get a reviewed plan. Nothing is executed.
+- **`/ralph`** — splits the work into stories with acceptance criteria,
+  implements them one by one, runs your tests after each, and finishes only
+  when a separate reviewer confirms every criterion with evidence. Never
+  commits.
 
-Child agents run in-process through
-[pi-agent-runner](https://github.com/akholod/pi-agent-runner); no other
-subagent package is needed.
+The loops run in code, not in a prompt, so the model can't skip a step.
 
 ## Install
 
@@ -19,54 +22,65 @@ subagent package is needed.
 pi install git:github.com/akholod/pi-spiral
 ```
 
-## Usage
+Works right away: every role uses your current pi model.
 
-```
-/ralplan <task>
-/ralplan --deliberate --interactive <task>
-/ralplan --preset deep <task>
-/ralplan-cancel
+## Use
 
-/ralph <task>
-/ralph --plan .spiral/plans/<artifact>.md <task>
-/ralph --resume
-/ralph --preset lite <task>
-/ralph-cancel
-
-/spiral-preset [name]
-/spiral-config
+```text
+/ralplan add rate limiting to the API               # plan only
+/ralph --plan .spiral/plans/<file>.md implement it  # build from a plan
+/ralph fix the flaky login test                     # or build straight away
 ```
 
-Both loops are also available to the model as the `ralplan` and `ralph`
-tools. `/agents` (from pi-agent-runner) lists running child agents: recent
-activity, cancel, or take over.
+| Command                            | What it does                                                                                                       |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `/ralplan <task>`                  | Plan. `--deliberate` adds a pre-mortem and more tests; `--interactive` asks you about the draft and the final plan |
+| `/ralph <task>`                    | Build. `--resume` continues a stopped run, `--no-deslop` skips the cleanup pass                                    |
+| `/ralplan-cancel`, `/ralph-cancel` | Stop a run                                                                                                         |
+| `/spiral-preset`                   | Pick a preset for this session                                                                                     |
+| `/spiral-config`                   | Show the effective settings and where they came from                                                               |
+| `/agents`                          | See running child agents, cancel or take over                                                                      |
 
-## Configuration
+The model can call both loops too, as the `ralplan` and `ralph` tools.
 
-`spiral.json` in the pi agent dir (`~/.pi/agent` or `PI_CODING_AGENT_DIR`,
-user) and `.pi/spiral.json` (project), merged
-key by key. By default every role inherits the session model. Recommended
-profile and all keys: [spiral.config.example.jsonc](spiral.config.example.jsonc).
+## Models and presets
 
-## Presets
+A reviewer on the same model as the author tends to agree with it. For a
+real second opinion, put the critic and the reviewer on another provider.
+Do it in `spiral.json`:
 
-Named overlays for the role settings (thinking, models, loop limits). Built-in,
-no provider names, models stay as in your config:
+- `~/.pi/agent/spiral.json` — yours, for every project
+- `.pi/spiral.json` — per project, overrides yours key by key
 
-- `lite`: no deliberate mode, 3 plan rounds, 2 review rounds, lower thinking.
-- `deep`: deliberate mode always, `high`/`xhigh` thinking on every role.
+```json
+{
+  "ralplan": { "roles": { "critic": { "model": "openai-codex/gpt-6-sol" } } },
+  "ralph": { "roles": { "reviewer": { "model": "openai-codex/gpt-6-sol" } } }
+}
+```
 
-Add your own under `presets` in `spiral.json` (allowed keys: `maxIterations`,
-`deliberate`, `roles` for ralplan; `maxIterations`, `deslop`, `reviewerAgent`,
-`maxReviewAttempts`, `budgetTokens`, `roles` for ralph). A project preset
-replaces a user or built-in preset of the same name entirely; `default` is
-reserved for "no preset".
+Every role takes `model` (`inherit` or `provider/model`), `thinking`
+(`off` … `max`) and `timeoutMs`. All keys, with comments:
+[spiral.config.example.jsonc](spiral.config.example.jsonc).
 
-Select with `--preset <name>` (or the `preset` tool parameter), per session
-with `/spiral-preset [name]` (`default` clears it), or set `defaultPreset` in
-`spiral.json`. Precedence: per-role model flags (`--critic`, `--executor`, ...,
-advanced) > `--preset` > `/spiral-preset` > `defaultPreset` > base config.
-`/ralph --resume` uses the currently effective preset and config, since run
-state records only the task, deslop and reviewer agent, not role settings.
+**Presets** switch effort in one word. Built in: `lite` (fewer rounds, less
+thinking) and `deep` (pre-mortem always, more thinking). Define your own
+under `presets` with any models you like, then:
 
-Design notes: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/adr](docs/adr).
+```text
+/ralplan --preset deep <task>    # one run
+/spiral-preset                   # this session
+"defaultPreset": "lite"          # always, in spiral.json
+```
+
+## Good to know
+
+- ralph never commits and never pushes. Review the diff yourself.
+- ralph asks before running test commands it guessed. Set `ralph.verify`
+  to skip the question.
+- Tests that already fail before the run don't block it; new failures do.
+- Plans go to `.spiral/plans/`, run state to `~/.pi/agent/spiral/ralph/`.
+
+How it works inside: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Decisions: [docs/adr](docs/adr). Based on
+[oh-my-claudecode](https://github.com/Yeachan-Heo/oh-my-claudecode).

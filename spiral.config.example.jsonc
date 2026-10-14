@@ -1,51 +1,37 @@
-// Spiral configuration.
-// Locations (project overrides user, key by key):
-//   user:    <pi agent dir>/spiral.json (~/.pi/agent or PI_CODING_AGENT_DIR)
-//   project: .pi/spiral.json
-// The loader accepts JSONC (comments and trailing commas).
+// Spiral settings. Copy what you need, not the whole file.
+//   ~/.pi/agent/spiral.json  yours, for every project
+//   .pi/spiral.json          per project, overrides yours key by key
+// Comments and trailing commas are fine. Run /spiral-config to check.
 //
-// Built-in defaults use "inherit" for every role: children run on the model
-// selected in the pi session that issues /ralplan. That works on any install
-// but gives the critic no independent viewpoint. The profile below is the
-// recommended setup when the providers are available: Opus for planner and
-// architect (pi-claude-bridge), GPT-5.6 Sol for the critic (openai-codex).
+// Without this file every role uses your current pi model. The profile below
+// puts reviewers on a different provider than authors, so they don't just
+// agree with them.
 {
-  // What a permission `ask` means inside Spiral's child agents.
-  // forward (default): the dialog opens in this session and the role's
-  // timeout pauses while you answer.
-  // deny: asks are refused at once -- for unattended runs; allow rules
-  // still pass.
+  // A permission prompt from a child agent: "forward" shows it to you,
+  // "deny" refuses it (for unattended runs).
   "permissionAsks": "forward",
 
-  // Preset used when --preset and /spiral-preset are not given. Built-in
-  // presets: "lite" (low effort, fewer rounds) and "deep" (deliberate mode,
-  // high/xhigh thinking). "default" or unset = this file as is.
+  // Preset used when you don't pick one. "default" = no preset.
   "defaultPreset": "default",
 
-  // Named partial overlays, selected with `/ralplan --preset <name>`,
-  // `/ralph --preset <name>` or `/spiral-preset <name>`. Allowed keys per
-  // workflow: maxIterations, deliberate / deslop, reviewerAgent,
-  // maxReviewAttempts, budgetTokens, roles.<role>.{model,thinking,timeoutMs}.
-  // A preset with the same name replaces a built-in or user preset entirely.
+  // Presets override roles and loop limits. Built in: lite and deep (thinking
+  // and limits only); define one with the same name to replace it.
   "presets": {
     "deep": {
       "ralplan": {
         "deliberate": "always",
         "roles": {
           "planner": {
-            "model": "claude-bridge/claude-opus-5",
-            "thinking": "xhigh",
+            "model": "claude-bridge/claude-opus-5-5",
+            "thinking": "high",
           },
-          "critic": {
-            "model": "openai-codex/gpt-5.6-sol",
-            "thinking": "xhigh",
-          },
+          "critic": { "model": "openai-codex/gpt-6-sol", "thinking": "xhigh" },
         },
       },
       "ralph": {
         "roles": {
           "executor": {
-            "model": "claude-bridge/claude-opus-5",
+            "model": "claude-bridge/claude-opus-5-5",
             "thinking": "high",
           },
           "reviewer": {
@@ -61,11 +47,11 @@
         "maxIterations": 3,
         "roles": {
           "planner": {
-            "model": "claude-bridge/claude-opus-5",
+            "model": "claude-bridge/claude-sonnet-5-5",
             "thinking": "low",
           },
           "critic": {
-            "model": "openai-codex/gpt-5.6-sol",
+            "model": "openai-codex/gpt-6-luna",
             "thinking": "medium",
           },
         },
@@ -74,11 +60,11 @@
         "maxReviewAttempts": 2,
         "roles": {
           "executor": {
-            "model": "claude-bridge/claude-opus-5",
-            "thinking": "medium",
+            "model": "claude-bridge/claude-sonnet-5-5",
+            "thinking": "high",
           },
           "reviewer": {
-            "model": "openai-codex/gpt-6-sol",
+            "model": "openai-codex/gpt-6-luna",
             "thinking": "medium",
           },
         },
@@ -87,35 +73,28 @@
   },
 
   "ralplan": {
-    // Planner -> architect -> critic rounds. Hard cap 5 (OMC reference);
-    // higher values invalidate the file.
+    // Review rounds, at most 5.
     "maxIterations": 5,
-
-    // Where plan artifacts are written, relative to the project cwd.
     "plansDir": ".spiral/plans",
-
-    // "auto" enables deliberate mode (pre-mortem + expanded test plan) when the
-    // task text signals high risk (auth/security, migrations, destructive
-    // changes, production, compliance/PII, breaking API changes).
-    // "always" / "never" force it.
+    // "auto" adds a pre-mortem and a wider test plan when the task sounds
+    // risky (auth, migrations, data loss, breaking APIs). "always" / "never".
     "deliberate": "auto",
 
-    // Per-role model settings. `model` is "inherit" or a fully qualified pi
-    // model id (provider/model). `thinking` is one of
-    // off | minimal | low | medium | high | xhigh | max.
+    // model: "inherit" or provider/model. thinking: off | minimal | low |
+    // medium | high | xhigh | max.
     "roles": {
       "planner": {
-        "model": "claude-bridge/claude-opus-5",
-        "thinking": "high",
+        "model": "claude-bridge/claude-opus-5-5",
+        "thinking": "medium",
         "timeoutMs": 900000,
       },
       "architect": {
-        "model": "claude-bridge/claude-opus-5",
-        "thinking": "high",
+        "model": "claude-bridge/claude-opus-5-5",
+        "thinking": "medium",
         "timeoutMs": 600000,
       },
       "critic": {
-        "model": "openai-codex/gpt-5.6-sol",
+        "model": "openai-codex/gpt-6-sol",
         "thinking": "high",
         "timeoutMs": 600000,
       },
@@ -123,50 +102,39 @@
   },
 
   "ralph": {
-    // Story attempts. Review rounds have their own budget below.
+    // Story attempts in one run.
     "maxIterations": 20,
-
-    // Run state root, OUTSIDE the project ("~/..." or absolute). Default:
-    // <pi agent dir>/spiral/ralph. Layout:
-    // <stateDir>/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
+    // Where run state lives, outside the project. Default:
+    // ~/.pi/agent/spiral/ralph (follows PI_CODING_AGENT_DIR).
     // "stateDir": "~/.pi/agent/spiral/ralph",
 
-    // Post-review ai-slop-cleaner pass on the changed files (OMC step 7.5).
-    // `/ralph --no-deslop` skips it for one run.
+    // Cleanup pass over the changed files after review.
     "deslop": true,
-
-    // Which read-only agent verifies the finished PRD: critic | architect.
+    // Who checks the finished work: critic | architect.
     "reviewerAgent": "critic",
-
-    // Reviewer rounds before the run ends as `exhausted`.
+    // Review rounds before ralph gives up.
     "maxReviewAttempts": 3,
 
-    // Regression commands the loop itself runs after every story, before
-    // the review and after cleanup. Empty = the PRD planner may propose
-    // commands, which /ralph asks you to confirm (the tool never runs
-    // them). Set explicitly to run without asking.
-    "verify": ["npm test", "npm run typecheck"],
+    // Commands ralph runs after every story. Unset: ralph proposes them and
+    // asks you first. Best set per project in .pi/spiral.json.
+    // "verify": ["npm test", "npm run typecheck"],
     "verifyTimeoutMs": 600000,
 
-    // Opt-in token budget for one ralph run (input + output tokens of all
-    // children, across resumes). At 90% the loop starts no new story,
-    // review or cleanup and stops resumably; 0 turns it off.
+    // Stop at 90% of this many tokens (resumable). 0 = no limit.
     "budgetTokens": 0,
 
-    // prd: drafts prd.json (planner agent, read-only).
-    // executor / cleaner: writers with pi's normal tools including a shell.
-    // reviewer: read-only critic or architect; a different provider than
-    // the executor gives an independent second opinion.
+    // prd writes the stories, executor and cleaner edit code, reviewer
+    // checks the result read-only.
     "roles": {
-      "prd": { "model": "claude-bridge/claude-opus-5", "thinking": "high" },
+      "prd": { "model": "claude-bridge/claude-opus-5-5", "thinking": "high" },
       "executor": {
-        "model": "claude-bridge/claude-opus-5",
+        "model": "claude-bridge/claude-opus-5-5",
         "thinking": "medium",
       },
       "reviewer": { "model": "openai-codex/gpt-6-sol", "thinking": "high" },
       "cleaner": {
-        "model": "claude-bridge/claude-opus-5",
-        "thinking": "medium",
+        "model": "claude-bridge/claude-opus-5-5",
+        "thinking": "low",
       },
     },
   },
