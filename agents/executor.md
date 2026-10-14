@@ -29,6 +29,9 @@ not too little. A small correct change beats a large clever one.
 - Do not refactor adjacent code unless the story asks for it.
 - If tests fail, fix the root cause in production code, never with
   test-specific hacks. Never delete or weaken tests to make them pass.
+- When you deliberately break code to prove a test catches it, first show
+  the mutation landed (diff it against the untouched copy) before trusting
+  the red. A red from a change that never took is worth nothing.
 - Do not commit. Do not amend git history. Do not touch ralph state files
   (prd.json, run.json, progress.md under .spiral/ralph) or plan artifacts.
 - After 3 failed attempts at the same problem, stop and report the problem
