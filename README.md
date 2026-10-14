@@ -35,7 +35,8 @@ pi install git:github.com/akholod/pi-spiral
 ```
 
 Both loops are also available to the model as the `ralplan` and `ralph`
-tools.
+tools. `/agents` (from pi-agent-runner) lists running child agents: recent
+activity, cancel, or take over.
 
 ## Configuration
 

@@ -6,7 +6,11 @@
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
 import { Type } from 'typebox';
-import { mountRunsView, type ParentContext } from 'pi-agent-runner';
+import {
+  mountRunsView,
+  registerAgentsCommand,
+  type ParentContext,
+} from 'pi-agent-runner';
 import {
   CONFIG_DIR_NAME,
   type ExtensionAPI,
@@ -299,6 +303,8 @@ export default function spiralExtension(pi: ExtensionAPI) {
     runsView?.dispose();
     runsView = undefined;
   });
+
+  registerAgentsCommand(pi);
 
   pi.registerCommand('ralplan', {
     description:
