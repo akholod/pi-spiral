@@ -30,8 +30,9 @@ export type ReviewerAgent = 'critic' | 'architect';
 export interface RalphConfig {
   // story attempts (review rounds have their own budget)
   maxIterations: number;
-  // run state root, outside the working tree: `~/...` or absolute
-  stateDir: string;
+  // run state root, outside the working tree: `~/...` or absolute;
+  // unset = `<pi agent dir>/spiral/ralph`
+  stateDir?: string;
   // post-approval ai-slop-cleaner pass on changed files (OMC step 7.5)
   deslop: boolean;
   reviewerAgent: ReviewerAgent;
@@ -88,7 +89,7 @@ export const DEFAULT_CONFIG: SpiralConfig = {
   },
   ralph: {
     maxIterations: 20,
-    stateDir: '~/.pi/agent/spiral/ralph',
+    stateDir: undefined,
     deslop: true,
     reviewerAgent: 'critic',
     maxReviewAttempts: 3,
@@ -106,10 +107,15 @@ export const DEFAULT_CONFIG: SpiralConfig = {
 
 export const CONFIG_FILE_NAME = 'spiral.json';
 
-export const getUserConfigPath = (
+// pi's default agent dir; the extension passes pi's own getAgentDir()
+// (which honors PI_CODING_AGENT_DIR) instead.
+export const defaultAgentDir = (
   configDirName: string,
   homeDir = homedir(),
-): string => join(homeDir, configDirName, 'agent', CONFIG_FILE_NAME);
+): string => join(homeDir, configDirName, 'agent');
+
+export const getUserConfigPath = (agentDir: string): string =>
+  join(agentDir, CONFIG_FILE_NAME);
 
 export const getProjectConfigPath = (
   cwd: string,
@@ -287,9 +293,10 @@ const validateDir = (
 // ralph state must live outside the project: `~/x` or an absolute path.
 const validateStateDir = (
   path: string,
-  value: string,
+  value: string | undefined,
   issues: ConfigIssue[],
 ): void => {
+  if (value === undefined) return;
   if (typeof value !== 'string' || value.trim() === '') {
     issues.push({ path, message: 'must be a non-empty string' });
   } else if (!(value.startsWith('~/') || value.startsWith('/'))) {
@@ -402,6 +409,9 @@ export interface LoadOptions {
   configDirName?: string;
   // untrusted projects never contribute config (ctx.isProjectTrusted())
   projectTrusted?: boolean;
+  // pi's agent dir (getAgentDir(), honors PI_CODING_AGENT_DIR); default
+  // `<homeDir>/<configDirName>/agent`
+  agentDir?: string;
   // home directory override so tests do not read the real user config
   homeDir?: string;
 }
@@ -428,7 +438,9 @@ export const loadConfig = (
   const configDirName = options.configDirName ?? '.pi';
   const sources: string[] = [];
   const issues: ConfigIssue[] = [];
-  const paths = [getUserConfigPath(configDirName, options.homeDir)];
+  const agentDir =
+    options.agentDir ?? defaultAgentDir(configDirName, options.homeDir);
+  const paths = [getUserConfigPath(agentDir)];
   if (options.projectTrusted !== false) {
     paths.push(getProjectConfigPath(cwd, configDirName));
   }

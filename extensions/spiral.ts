@@ -13,6 +13,7 @@ import {
 } from 'pi-agent-runner';
 import {
   CONFIG_DIR_NAME,
+  getAgentDir,
   type ExtensionAPI,
   type ExtensionCommandContext,
   type ExtensionContext,
@@ -232,6 +233,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
   // Returns the error list; empty means go.
   const preflight = (
     ctx: ExtensionContext,
+    label: 'ralplan' | 'ralph',
     roles: Parameters<typeof preflightModels>[0],
     independent: [string, string],
   ): string[] => {
@@ -243,7 +245,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
     for (const warning of warnings) {
       if (warned.has(warning)) continue;
       warned.add(warning);
-      ctx.ui.notify(`[ralplan] ${warning}`, 'warning');
+      ctx.ui.notify(`[${label}] ${warning}`, 'warning');
     }
     return errors;
   };
@@ -263,6 +265,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
   }): LoadedConfig =>
     loadConfig(ctx.cwd, {
       configDirName: CONFIG_DIR_NAME,
+      agentDir: getAgentDir(),
       projectTrusted: ctx.isProjectTrusted(),
     });
 
@@ -324,6 +327,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
+        'ralplan',
         applyModelOverrides(cfg.config.ralplan, parsed.models).roles,
         ['planner', 'critic'],
       );
@@ -429,6 +433,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
+        'ralplan',
         applyModelOverrides(loaded.config.ralplan, params.models).roles,
         ['planner', 'critic'],
       );
@@ -506,6 +511,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
+        'ralph',
         applyRalphModelOverrides(cfg.config.ralph, parsed.models).roles,
         ['executor', 'reviewer'],
       );
@@ -531,6 +537,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
           parent: parentOf(ctx),
           permissionAsks: cfg.config.permissionAsks,
           config: cfg.config.ralph,
+          agentDir: getAgentDir(),
           cwd: ctx.cwd,
           task: parsed.task,
           plan: parsed.plan,
@@ -659,6 +666,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
       }
       const errors = preflight(
         ctx,
+        'ralph',
         applyRalphModelOverrides(loaded.config.ralph, params.models).roles,
         ['executor', 'reviewer'],
       );
@@ -680,6 +688,7 @@ export default function spiralExtension(pi: ExtensionAPI) {
         parent: parentOf(ctx),
         permissionAsks: loaded.config.permissionAsks,
         config: loaded.config.ralph,
+        agentDir: getAgentDir(),
         cwd: ctx.cwd,
         task: params.task,
         plan: params.plan,

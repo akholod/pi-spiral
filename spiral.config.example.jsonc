@@ -1,6 +1,6 @@
 // Spiral configuration.
 // Locations (project overrides user, key by key):
-//   user:    ~/.pi/agent/spiral.json
+//   user:    <pi agent dir>/spiral.json (~/.pi/agent or PI_CODING_AGENT_DIR)
 //   project: .pi/spiral.json
 // The loader accepts JSONC (comments and trailing commas).
 //
@@ -57,9 +57,10 @@
     // Story attempts. Review rounds have their own budget below.
     "maxIterations": 20,
 
-    // Run state root, OUTSIDE the project ("~/..." or absolute):
+    // Run state root, OUTSIDE the project ("~/..." or absolute). Default:
+    // <pi agent dir>/spiral/ralph. Layout:
     // <stateDir>/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
-    "stateDir": "~/.pi/agent/spiral/ralph",
+    // "stateDir": "~/.pi/agent/spiral/ralph",
 
     // Post-review ai-slop-cleaner pass on the changed files (OMC step 7.5).
     // `/ralph --no-deslop` skips it for one run.

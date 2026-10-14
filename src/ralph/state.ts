@@ -2,7 +2,7 @@
 //   <stateRoot>/<projectKey>/<runId>/{prd.json, run.json, progress.md,
 //   integrity.json}
 // The state root lives outside the working tree (default
-// `~/.pi/agent/spiral/ralph`) so writer children do not trip over it.
+// `<pi agent dir>/spiral/ralph`) so writer children do not trip over it.
 // That is NOT a security boundary: a child with a shell can reach any
 // path. What we guarantee is detection: every persist first checks that
 // the files still match what the loop wrote last (`integrity.json`), and a
@@ -38,12 +38,24 @@ export const isRunId = (value: string): boolean => UUID.test(value);
 export const sha256 = (text: string): string =>
   createHash('sha256').update(text).digest('hex');
 
-// `~/x` or absolute; relative paths are rejected by config validation.
+// Unset = `<agentDir>/spiral/ralph`; else `~/x` or absolute (relative paths
+// are rejected by config validation).
 export const resolveStateRoot = (
-  stateDir: string,
-  homeDir = homedir(),
-): string =>
-  stateDir.startsWith('~/') ? join(homeDir, stateDir.slice(2)) : stateDir;
+  stateDir: string | undefined,
+  dirs: { homeDir?: string; agentDir?: string } = {},
+): string => {
+  const homeDir = dirs.homeDir ?? homedir();
+  if (stateDir === undefined) {
+    return join(
+      dirs.agentDir ?? join(homeDir, '.pi', 'agent'),
+      'spiral',
+      'ralph',
+    );
+  }
+  return stateDir.startsWith('~/')
+    ? join(homeDir, stateDir.slice(2))
+    : stateDir;
+};
 
 // Stable per-project directory name: readable prefix + hash of the path.
 export const projectKey = (cwd: string): string => {

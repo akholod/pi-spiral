@@ -40,7 +40,8 @@ activity, cancel, or take over.
 
 ## Configuration
 
-`~/.pi/agent/spiral.json` (user) and `.pi/spiral.json` (project), merged
+`spiral.json` in the pi agent dir (`~/.pi/agent` or `PI_CODING_AGENT_DIR`,
+user) and `.pi/spiral.json` (project), merged
 key by key. By default every role inherits the session model. Recommended
 profile and all keys: [spiral.config.example.jsonc](spiral.config.example.jsonc).
 

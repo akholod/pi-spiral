@@ -62,6 +62,8 @@ export interface RalphOptions {
   signal?: AbortSignal;
   onProgress?: (progress: RalphProgress) => void;
   delegateFn?: Delegate;
+  // pi's agent dir (getAgentDir()); default `~/.pi/agent`
+  agentDir?: string;
   // test hook: home directory for `~/` in stateDir
   homeDir?: string;
 }
@@ -219,7 +221,7 @@ const resumeRun = async (
   config: RalphConfig,
   base: (runId: string, resumed: boolean) => RalphRequest,
 ): Promise<RalphResult> => {
-  const stateRoot = resolveStateRoot(config.stateDir, options.homeDir);
+  const stateRoot = resolveStateRoot(config.stateDir, options);
   const projectDir = projectDirFor(stateRoot, options.cwd);
   const runId =
     options.resume === 'latest' ? findLatestRun(projectDir) : options.resume;
@@ -290,7 +292,7 @@ const startRun = async (
   config: RalphConfig,
   base: (runId: string, resumed: boolean) => RalphRequest,
 ): Promise<RalphResult> => {
-  const stateRoot = resolveStateRoot(config.stateDir, options.homeDir);
+  const stateRoot = resolveStateRoot(config.stateDir, options);
   const request = base(crypto.randomUUID(), false);
   const runDir = runDirFor(stateRoot, options.cwd, request.runId);
   const usage = emptyUsage();
@@ -373,7 +375,7 @@ export const runRalph = async (options: RalphOptions): Promise<RalphResult> => {
   const config = applyRalphModelOverrides(options.config, options.models);
   const reviewerAgent = options.reviewerAgent ?? config.reviewerAgent;
   const deslop = options.noDeslop ? false : config.deslop;
-  const stateRoot = resolveStateRoot(config.stateDir, options.homeDir);
+  const stateRoot = resolveStateRoot(config.stateDir, options);
   const projectDir = projectDirFor(stateRoot, options.cwd);
 
   const base = (runId: string, resumed: boolean): RalphRequest => ({

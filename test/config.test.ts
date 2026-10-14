@@ -12,6 +12,7 @@ import {
 } from '../src/config.ts';
 import { detectPlanMode } from '../src/ralplan/prompts.ts';
 import { parseRalplanArgs } from '../src/ralplan/index.ts';
+import { resolveStateRoot } from '../src/ralph/state.ts';
 
 test('defaults are valid', () => {
   assert.deepEqual(validateConfig(DEFAULT_CONFIG), []);
@@ -99,6 +100,65 @@ test('ralph.stateDir must be outside the project', () => {
   assert.equal(validateConfig(dots).length, 1);
   const ok = deepMerge(DEFAULT_CONFIG, { ralph: { stateDir: '/tmp/ralph' } });
   assert.deepEqual(validateConfig(ok), []);
+});
+
+test('ralph.stateDir is optional; unset by default', () => {
+  assert.equal(DEFAULT_CONFIG.ralph.stateDir, undefined);
+  const loaded = load(tempProject());
+  assert.equal(loaded.fallback, false);
+  assert.equal(loaded.config.ralph.stateDir, undefined);
+});
+
+test('ralph.stateDir from a config file is validated', () => {
+  const cwd = tempProject();
+  writeFileSync(
+    join(cwd, '.pi', 'spiral.json'),
+    '{"ralph": {"stateDir": "/tmp/ralph"}}',
+  );
+  assert.equal(load(cwd).config.ralph.stateDir, '/tmp/ralph');
+  writeFileSync(
+    join(cwd, '.pi', 'spiral.json'),
+    '{"ralph": {"stateDir": "rel/dir"}}',
+  );
+  assert.equal(load(cwd).fallback, true);
+});
+
+test('loadConfig reads the user config from agentDir when given', () => {
+  const agentDir = mkdtempSync(join(tmpdir(), 'spiral-agent-'));
+  writeFileSync(
+    join(agentDir, 'spiral.json'),
+    '{"ralph": {"maxIterations": 7}}',
+  );
+  const loaded = loadConfig(tempProject(), { homeDir: home, agentDir });
+  assert.equal(loaded.config.ralph.maxIterations, 7);
+  assert.deepEqual(loaded.sources, [join(agentDir, 'spiral.json')]);
+});
+
+test('loadConfig defaults agentDir to <homeDir>/.pi/agent', () => {
+  const fakeHome = mkdtempSync(join(tmpdir(), 'spiral-home2-'));
+  mkdirSync(join(fakeHome, '.pi', 'agent'), { recursive: true });
+  writeFileSync(
+    join(fakeHome, '.pi', 'agent', 'spiral.json'),
+    '{"ralph": {"maxIterations": 9}}',
+  );
+  const loaded = loadConfig(tempProject(), { homeDir: fakeHome });
+  assert.equal(loaded.config.ralph.maxIterations, 9);
+});
+
+test('resolveStateRoot: default under agentDir, ~/ expands, absolute kept', () => {
+  assert.equal(
+    resolveStateRoot(undefined, { agentDir: '/a/agent', homeDir: '/h' }),
+    '/a/agent/spiral/ralph',
+  );
+  assert.equal(
+    resolveStateRoot(undefined, { homeDir: '/h' }),
+    '/h/.pi/agent/spiral/ralph',
+  );
+  assert.equal(
+    resolveStateRoot('~/x', { agentDir: '/a/agent', homeDir: '/h' }),
+    '/h/x',
+  );
+  assert.equal(resolveStateRoot('/abs/x', { homeDir: '/h' }), '/abs/x');
 });
 
 test('loadConfig falls back to defaults on invalid project config', () => {

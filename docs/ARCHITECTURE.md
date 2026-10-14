@@ -43,7 +43,8 @@ See ADR 0001 for the alternatives considered.
 /ralplan <task>  or  tool ralplan({task})
    │
    ▼
-loadConfig(cwd)  ~/.pi/agent/spiral.json  <-  .pi/spiral.json
+loadConfig(cwd)  <pi agent dir>/spiral.json  <-  .pi/spiral.json
+                 (pi agent dir: ~/.pi/agent or PI_CODING_AGENT_DIR)
    │
    ▼
 detectPlanMode(task)  short | deliberate
@@ -118,7 +119,7 @@ Design in ADR 0003. Runtime flow:
    ▼
 delegate(spiral-planner, roles.prd) -> PrdDraft (structured)   [retry once if generic]
    │   verify commands: config.verify, else PRD proposal after user confirm, else none
-   │   ~/.pi/agent/spiral/ralph/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
+   │   <pi agent dir>/spiral/ralph/<project>/<runId>/{prd.json, run.json, progress.md, integrity.json}
    ▼
 loop (one active run per project; every persist checks integrity.json)
    ├─ next story with passes=false ?  (iterations < maxIterations else exhausted)
