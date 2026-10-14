@@ -21,7 +21,8 @@
     "extensions",
     "src",
     "agents",
-    "docs",
+    "docs/ARCHITECTURE.md",
+    "docs/adr",
     "spiral.config.example.jsonc",
     "README.md"
   ],
