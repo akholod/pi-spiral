@@ -601,3 +601,26 @@ terminal, and porting it means shipping and updating native binaries for
 five targets from an npm Pi package, plus a file IPC protocol with lock
 and stale-owner recovery. The terminal-side value (live agent list,
 presets) is already delivered by T35 and T36.
+
+## Subprocess backend (T29, 2026-10-13)
+
+`backend: 'process'` in pi-agent-runner runs the child as `pi --mode rpc`
+in its own process group. The runner's guard, prompt freeze, tool-start
+signal and `submit_result` load into it as file extensions; dialogs are
+relayed to the parent UI with timers paused; timeouts, abort without
+effect and dispose end in SIGTERM, then SIGKILL of the whole group.
+Callers pass `extensionPaths` instead of `extensionFactories`.
+
+Live: a `sleep 777` bash call with `toolTimeoutMs` 15 s ended `timed_out`
+after 17 s (gpt-6-luna) and 21 s (claude-bridge sonnet), no process left;
+a trivial answer took 3 s including Pi boot.
+
+The same `sleep 777` case in-process also ended `timed_out` after 18 s
+with no process left: Pi's bash kills its own process tree on abort.
+
+Decision: opt-in, not the default for writers. The in-process child
+already ends on its timers in every case seen live; the subprocess costs a Pi boot and a Node heap
+per child, drops `extensionFactories` (Opium's guards would have to move
+to `extensionPaths`) and streams fewer activity events. Revisit if a
+wedged in-process child is ever observed; then switch the affected roles
+(fixer, executor) per agent.

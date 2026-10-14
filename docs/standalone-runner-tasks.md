@@ -374,7 +374,7 @@ Issue: https://github.com/akholod/pi-opium/issues/9
   then reinstall it and repeat to check coexistence (D3).
 - **Done when:** both configurations work; findings recorded.
 
-### [ ] T29. Optional subprocess backend
+### [x] T29. Optional subprocess backend
 
 Issue: https://github.com/akholod/pi-agent-runner/issues/2
 
@@ -384,6 +384,7 @@ Issue: https://github.com/akholod/pi-agent-runner/issues/2
   writer roles, so a wedged child can be killed with SIGKILL.
 - **Done when:** a test kills a child stuck in a tool; decision recorded
   on whether it becomes the default for writers.
+- **Decision:** opt-in only; see the plan, "Subprocess backend (T29)".
 
 ## Phase 6. Opium: slim features never ported
 
