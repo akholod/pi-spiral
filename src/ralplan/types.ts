@@ -205,6 +205,8 @@ export interface RalplanResult {
   usage: UsageTotals;
   // set only when a file was actually written
   artifactPath?: string;
+  // sidecar folder with per-iteration plan/architect/critic files
+  reviewsPath?: string;
   error?: string;
   // human-readable caveat about the final plan (e.g. unreviewed feedback)
   note?: string;

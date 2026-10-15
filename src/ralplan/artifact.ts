@@ -1,5 +1,5 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { formatCriticReview } from './prompts.ts';
 import type { RalplanResult, RalplanRequest, UsageTotals } from './types.ts';
 
@@ -56,6 +56,7 @@ const noteLine = (result: RalplanResult): string => {
       `${result.error ?? 'unknown'}; latest draft may be unreviewed`
     );
   }
+  if (rounds === 0) return 'draft accepted by user without review';
   return 'reviewed by architect and critic; awaiting user approval';
 };
 
@@ -66,32 +67,57 @@ export const formatUsage = (usage: UsageTotals): string =>
   `${usage.cacheRead} read), ` +
   `$${usage.cost.toFixed(4)}, ${Math.round(usage.durationMs / 1000)}s`;
 
+// `<plan basename without .md>-reviews`, next to the plan file.
+export const reviewsDirOf = (artifactPath: string): string =>
+  `${artifactPath.replace(/\.md$/, '')}-reviews`;
+
+export interface ReviewFile {
+  name: string;
+  content: string;
+}
+
+// Per-iteration planner output and both reviews, `<role>-v<N>.md`.
+export const renderReviewFiles = (result: RalplanResult): ReviewFile[] =>
+  result.iterations.flatMap((record) => [
+    { name: `plan-v${record.iteration}.md`, content: record.plan },
+    {
+      name: `architect-v${record.iteration}.md`,
+      content: record.architectReview,
+    },
+    {
+      name: `critic-v${record.iteration}.md`,
+      content: formatCriticReview(record.criticReview),
+    },
+  ]);
+
+const consensusLine = (result: RalplanResult, reviews?: string): string => {
+  const where = reviews ? `; architect and critic reviews in ${reviews}/` : '';
+  const rounds = result.iterations.length;
+  if (result.outcome === 'approved' && rounds > 0) {
+    return `Consensus: critic APPROVE after ${rounds} iteration(s)${where}.`;
+  }
+  return `Not approved: ${noteLine(result)}${where}.`;
+};
+
+// The planner usually opens with its own H1; keep it as the title instead of
+// stacking a second one above it.
+const splitTitle = (
+  task: string,
+  plan: string,
+): { title: string; body: string } => {
+  const match = /^\s*(# [^\n]+)\n?/.exec(plan);
+  if (!match) return { title: `# Plan: ${task}`, body: plan };
+  return { title: match[1].trim(), body: plan.slice(match[0].length) };
+};
+
+// `reviews` is the sidecar directory name relative to the plan file's folder;
+// omitted when there are no per-iteration files.
 export const renderArtifact = (
   request: RalplanRequest,
   result: RalplanResult,
+  reviews?: string,
 ): string => {
-  const history = result.iterations.map((record) =>
-    [
-      `### Iteration ${record.iteration}`,
-      '',
-      `Critic verdict: **${record.criticReview.verdict}** — ` +
-        `${record.criticReview.summary}`,
-      '',
-      '<details><summary>Architect review</summary>',
-      '',
-      record.architectReview,
-      '',
-      '</details>',
-      '',
-      '<details><summary>Critic review</summary>',
-      '',
-      formatCriticReview(record.criticReview),
-      '',
-      '</details>',
-      '',
-    ].join('\n'),
-  );
-
+  const { title, body } = splitTitle(request.task, result.finalPlan);
   return [
     '---',
     `status: ${STATUS[result.outcome]}`,
@@ -102,23 +128,19 @@ export const renderArtifact = (
     `cost_usd: ${result.usage.cost.toFixed(4)}`,
     `tokens_in: ${result.usage.input}`,
     `tokens_out: ${result.usage.output}`,
+    `usage: ${yamlString(formatUsage(result.usage))}`,
     `iterations: ${result.iterations.length}`,
+    ...(reviews ? [`reviews: ${yamlString(reviews)}`] : []),
     `generated: ${new Date().toISOString()}`,
     'generator: pi-spiral ralplan',
     '---',
     '',
-    `# Plan: ${request.task}`,
+    title,
     '',
-    result.finalPlan,
+    consensusLine(result, reviews),
     '',
-    '---',
+    body.replace(/^\s*\n/, ''),
     '',
-    '## Review history',
-    '',
-    ...history,
-    '## Usage',
-    '',
-    formatUsage(result.usage),
   ].join('\n');
 };
 
@@ -126,4 +148,34 @@ export const renderArtifact = (
 export const writeArtifact = (path: string, content: string): void => {
   mkdirSync(join(path, '..'), { recursive: true });
   writeFileSync(path, content, { encoding: 'utf8', flag: 'wx' });
+};
+
+// Writes the main plan exclusively, then the reviews sidecar. A sidecar
+// failure keeps the plan and is returned as a warning instead of thrown.
+export const writeArtifacts = (
+  path: string,
+  request: RalplanRequest,
+  result: RalplanResult,
+): { warning?: string } => {
+  const files = renderReviewFiles(result);
+  const dir = reviewsDirOf(path);
+  writeArtifact(
+    path,
+    renderArtifact(
+      request,
+      result,
+      files.length > 0 ? basename(dir) : undefined,
+    ),
+  );
+  if (files.length === 0) return {};
+  try {
+    mkdirSync(dir, { recursive: true });
+    for (const file of files) {
+      writeFileSync(join(dir, file.name), file.content, 'utf8');
+    }
+    return {};
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { warning: `reviews folder not fully written: ${message}` };
+  }
 };

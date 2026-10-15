@@ -101,8 +101,12 @@ const summarize = (result: RalplanResult): string => {
       break;
   }
   if (result.note) lines.push(`note: ${result.note}`);
-  if (result.artifactPath) lines.push(`artifact: ${result.artifactPath}`);
-  else if (result.outcome !== 'rejected') lines.push('artifact: none written');
+  if (result.artifactPath) {
+    lines.push(`artifact: ${result.artifactPath}`);
+    if (result.reviewsPath) lines.push(`reviews: ${result.reviewsPath}/`);
+  } else if (result.outcome !== 'rejected') {
+    lines.push('artifact: none written');
+  }
   lines.push(`usage: ${formatUsage(result.usage)}`);
   return lines.join('\n');
 };

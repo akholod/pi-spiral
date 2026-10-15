@@ -1,11 +1,7 @@
 import type { ParentContext } from 'pi-agent-runner';
 import type { PermissionAsks, RalplanConfig } from '../config.ts';
 import type { RoleName } from '../subagents/roles.ts';
-import {
-  buildArtifactPath,
-  renderArtifact,
-  writeArtifact,
-} from './artifact.ts';
+import { buildArtifactPath, reviewsDirOf, writeArtifacts } from './artifact.ts';
 import { runRalplanLoop, type Delegate, type LoopProgress } from './loop.ts';
 import { detectPlanMode } from './prompts.ts';
 import type { CheckpointHandler, RalplanResult } from './types.ts';
@@ -77,8 +73,14 @@ export const runRalplan = async (
       options.task,
       request.runId,
     );
-    writeArtifact(artifactPath, renderArtifact(request, result));
+    const { warning } = writeArtifacts(artifactPath, request, result);
     result.artifactPath = artifactPath;
+    if (result.iterations.length > 0) {
+      result.reviewsPath = reviewsDirOf(artifactPath);
+    }
+    if (warning) {
+      result.note = result.note ? `${result.note}; ${warning}` : warning;
+    }
   }
   return result;
 };

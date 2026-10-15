@@ -21,6 +21,7 @@ import {
   type Prd,
   type PrdDraft,
 } from './prd.ts';
+import { planBody } from './plan-body.ts';
 import { buildPrdTask } from './prompts.ts';
 import { prdSummary } from './summary.ts';
 import {
@@ -106,7 +107,7 @@ const draftPrd = async (
   const plan = request.planArtifact
     ? {
         path: request.planArtifact,
-        content: readFileSync(request.planArtifact, 'utf8'),
+        content: planBody(readFileSync(request.planArtifact, 'utf8')),
       }
     : undefined;
   const branchName = await gitBranch(request.cwd);

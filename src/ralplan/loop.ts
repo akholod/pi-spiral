@@ -5,7 +5,8 @@
 //   2. Only the Planner synthesizes both reviews into a revision.
 //   3. Loop until Critic returns a *clean* APPROVE (no CRITICAL/MAJOR
 //      findings) or maxIterations is reached.
-//   4. The loop never mutates the project; the only write is the artifact.
+//   4. The loop never mutates the project; the only writes are the artifact
+//      and its reviews folder.
 //   5. Interactive mode adds two user checkpoints: after the first draft and
 //      after critic approval (OMC steps 2 and 6).
 

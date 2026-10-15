@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, existsSync, readFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { Compile as compile } from 'typebox/compile';
 import type { ParentContext } from 'pi-agent-runner';
 import { DEFAULT_CONFIG } from '../src/config.ts';
@@ -162,7 +162,33 @@ test('roles run in order, critic never sees the architect review', async () => {
   assert.ok(result.artifactPath && existsSync(result.artifactPath));
   const artifact = readFileSync(result.artifactPath, 'utf8');
   assert.ok(artifact.startsWith('---\nstatus: pending-approval\n'));
-  assert.ok(artifact.includes('### Ralplan gates'));
+  assert.ok(!artifact.includes('ARCHITECT-SECRET'));
+  assert.ok(!artifact.includes('## Review history'));
+  assert.ok(!artifact.includes('### Ralplan gates'));
+  assert.match(
+    artifact,
+    /Consensus: critic APPROVE after 2 iteration\(s\); architect and critic/,
+  );
+  assert.ok(artifact.trimEnd().endsWith('plan v2'));
+  const dir = result.artifactPath.replace(/\.md$/, '-reviews');
+  assert.ok(artifact.includes(`reviews: "${basename(dir)}"`));
+  assert.deepEqual(readdirSync(dir).sort(), [
+    'architect-v1.md',
+    'architect-v2.md',
+    'critic-v1.md',
+    'critic-v2.md',
+    'plan-v1.md',
+    'plan-v2.md',
+  ]);
+  assert.equal(readFileSync(join(dir, 'plan-v1.md'), 'utf8'), 'plan v1');
+  assert.equal(
+    readFileSync(join(dir, 'architect-v2.md'), 'utf8'),
+    'ARCHITECT-SECRET-2',
+  );
+  const critic1 = readFileSync(join(dir, 'critic-v1.md'), 'utf8');
+  assert.ok(critic1.startsWith('Verdict: ITERATE'));
+  assert.ok(critic1.includes('### Ralplan gates'));
+  assert.equal(result.reviewsPath, dir);
   // Usage aggregated over all 6 child runs.
   assert.equal(result.usage.runs, 6);
   assert.equal(result.usage.input, 600);

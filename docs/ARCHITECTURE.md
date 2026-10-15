@@ -28,14 +28,14 @@ for round in 1..maxIterations (≤ 5)
   architect -> review of that exact plan
   critic    -> structured verdict on the same plan, never sees the architect
   clean APPROVE ? stop : planner gets both reviews next round
-write .spiral/plans/<ts>-<slug>.md   status: pending approval
+write .spiral/plans/<ts>-<slug>.md (+ <ts>-<slug>-reviews/)   status: pending approval
 ```
 
 - APPROVE counts only with no CRITICAL/MAJOR findings and all four gates
   passing; otherwise code downgrades it to ITERATE (`src/ralplan/loop.ts`).
 - Deliberate mode (pre-mortem, wider test plan) turns on for risky tasks
   or `--deliberate`.
-- Nothing in the project changes; the plan file is the only write.
+- Nothing in the project changes; the only writes are the plan file and its `-reviews/` folder.
 - After 5 rounds without approval the latest plan is written and marked so.
 
 ## ralph

@@ -79,7 +79,8 @@ under `presets` with any models you like, then:
 - ralph asks before running test commands it guessed. Set `ralph.verify`
   to skip the question.
 - Tests that already fail before the run don't block it; new failures do.
-- Plans go to `.spiral/plans/`, run state to `~/.pi/agent/spiral/ralph/`.
+- Plans go to `.spiral/plans/` (each plan's per-iteration reviews in the
+  sibling `-reviews/` folder), run state to `~/.pi/agent/spiral/ralph/`.
 
 How it works inside: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 Decisions: [docs/adr](docs/adr). Based on
