@@ -22,6 +22,7 @@ import {
   type PrdDraft,
 } from './prd.ts';
 import { buildPrdTask } from './prompts.ts';
+import { prdSummary } from './summary.ts';
 import {
   absolute,
   acquireProjectLock,
@@ -127,11 +128,23 @@ const draftPrd = async (
       label: { name: 'spiral-prd', context: 'ralph #0' },
     });
     addUsage(usage, response);
+    const peek =
+      response.status === 'completed' && response.result?.kind === 'structured'
+        ? (response.result.value as Partial<PrdDraft> | null)
+        : null;
     options.onProgress?.({
       iteration: 0,
       role: 'prd',
       phase: 'finished',
       detail: response.status,
+      summary: Array.isArray(peek?.stories)
+        ? prdSummary(
+            peek.stories.map((s) => ({
+              id: String(s.id ?? '?'),
+              title: String(s.title ?? ''),
+            })),
+          )
+        : undefined,
     });
     const draft = structuredOf('prd', response) as PrdDraft;
     if (!draft || !Array.isArray(draft.stories)) {

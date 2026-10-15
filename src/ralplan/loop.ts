@@ -30,6 +30,7 @@ import {
   buildPlannerRevisionTask,
   buildPlannerUserFeedbackTask,
 } from './prompts.ts';
+import { architectSummary, criticSummary, plannerSummary } from './summary.ts';
 import {
   CRITIC_REVIEW_SCHEMA,
   type CheckpointHandler,
@@ -44,6 +45,8 @@ export interface LoopProgress {
   role: RoleName;
   phase: 'started' | 'finished';
   detail?: string;
+  // 1-3 short single-line digests of what the role concluded; 'finished' only
+  summary?: string[];
 }
 
 // Injected so tests can drive the loop without real child agents.
@@ -107,6 +110,20 @@ const reviewOf = (response: DelegationResponse): CriticReview => {
   return normalizeReview(review);
 };
 
+// A digest is a progress nicety: it must never fail the run.
+const digest = (
+  response: DelegationResponse,
+  summarize?: (response: DelegationResponse) => string[],
+): string[] | undefined => {
+  let lines: string[] = [];
+  try {
+    lines = summarize?.(response) ?? [];
+  } catch {
+    // nothing to show
+  }
+  return lines.length > 0 ? lines : undefined;
+};
+
 const runRole = async (
   options: RunLoopOptions,
   usage: UsageTotals,
@@ -116,6 +133,7 @@ const runRole = async (
   nodeSuffix: string,
   task: string,
   structured: boolean,
+  summarize?: (response: DelegationResponse) => string[],
 ): Promise<DelegationResponse> => {
   const run = options.delegateFn ?? delegate;
   options.onProgress?.({ iteration, role, phase: 'started' });
@@ -141,6 +159,8 @@ const runRole = async (
     role,
     phase: 'finished',
     detail: response.status,
+    summary:
+      response.status === 'completed' ? digest(response, summarize) : undefined,
   });
   return response;
 };
@@ -176,6 +196,7 @@ export const runRalplanLoop = async (
       suffix,
       text,
       false,
+      (response) => plannerSummary(textOf('planner', response), iteration),
     );
 
   const done = (
@@ -264,6 +285,7 @@ export const runRalplanLoop = async (
           '',
           buildArchitectTask(task, mode, plan),
           false,
+          (response) => architectSummary(textOf('architect', response)),
         ),
       );
 
@@ -277,6 +299,7 @@ export const runRalplanLoop = async (
           '',
           buildCriticTask(task, mode, plan),
           true,
+          (response) => criticSummary(reviewOf(response)),
         ),
       );
 

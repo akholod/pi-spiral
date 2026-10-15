@@ -18,6 +18,7 @@ import {
   applyRejection,
   normalizeReview,
   type Delegate,
+  type RalphProgress,
 } from '../src/ralph/loop.ts';
 import type { Prd } from '../src/ralph/prd.ts';
 import {
@@ -1030,4 +1031,32 @@ test('cancel mid-run, then resume completes the same run', async () => {
   assert.equal(resumed.outcome, 'completed', why(resumed));
   assert.equal(resumed.runId, stopped.runId);
   assert.ok(second.calls[0].nodeId.endsWith('US-002'));
+});
+
+test('progress: finished events carry role digests', async () => {
+  const events: RalphProgress[] = [];
+  const fake = fakeDelegate();
+  const result = await run(fake, { onProgress: (p) => events.push(p) });
+  assert.equal(result.outcome, 'completed', why(result));
+  const lines = (role: string, phase: string) =>
+    events
+      .filter((e) => e.role === role && e.phase === phase)
+      .map((e) => e.summary ?? []);
+  assert.match(lines('prd', 'finished')[0][0], /^2 stories: US-001 /);
+  const starts = events.filter(
+    (e) => e.role === 'executor' && e.phase === 'started',
+  );
+  assert.match(starts[0].detail ?? '', /^US-001 /);
+  const executors = lines('executor', 'finished');
+  assert.equal(executors.length, 2);
+  assert.equal(executors[0][0], 'US-001 pass');
+  assert.match(executors[0].at(-1) ?? '', /^1 file changed: src\/US-001\.ts/);
+  assert.deepEqual(lines('verify', 'finished')[0], ['baseline clean']);
+  assert.deepEqual(lines('verify', 'finished')[1], ['no new failures']);
+  assert.match(lines('reviewer', 'finished')[0][0], /^APPROVE/);
+  assert.match(
+    lines('cleaner', 'finished')[0][0],
+    /^cleanup scoped to 2 files/,
+  );
+  assert.ok(events.every((e) => (e.summary ?? []).length <= 3));
 });

@@ -7,7 +7,11 @@ import { Compile as compile } from 'typebox/compile';
 import type { ParentContext } from 'pi-agent-runner';
 import { DEFAULT_CONFIG } from '../src/config.ts';
 import { applyModelOverrides, runRalplan } from '../src/ralplan/index.ts';
-import { normalizeReview, type Delegate } from '../src/ralplan/loop.ts';
+import {
+  normalizeReview,
+  type Delegate,
+  type LoopProgress,
+} from '../src/ralplan/loop.ts';
 import { writeArtifact } from '../src/ralplan/artifact.ts';
 import { CRITIC_REVIEW_SCHEMA } from '../src/ralplan/types.ts';
 import type {
@@ -398,4 +402,28 @@ test('ralplan children are labelled spiral-<role> with the iteration', async () 
       { name: 'spiral-critic', context: 'ralplan #2' },
     ],
   );
+});
+
+test('finished progress events carry role digests, started ones do not', async () => {
+  const events: LoopProgress[] = [];
+  const fake = fakeDelegate({
+    verdicts: [review('ITERATE', ['MAJOR']), review('APPROVE')],
+    plannerText: (call) =>
+      `# Plan v${call}\n\n## Implementation steps\n1. a\n2. b`,
+  });
+  const result = await run(fake, { onProgress: (p) => events.push(p) });
+  assert.equal(result.outcome, 'approved');
+  assert.ok(
+    events.filter((e) => e.phase === 'started').every((e) => !e.summary),
+  );
+  const finished = events.filter((e) => e.phase === 'finished');
+  assert.equal(finished.length, 6);
+  assert.deepEqual(finished[0].summary, ['Plan v1 (2 steps)']);
+  assert.equal(finished[1].role, 'architect');
+  assert.deepEqual(
+    finished[2].summary?.[0],
+    'ITERATE — 0 CRITICAL, 1 MAJOR, 0 MINOR',
+  );
+  assert.match(finished[3].summary?.[1] ?? '', /^revised from/);
+  assert.ok(finished.every((e) => (e.summary ?? []).length <= 3));
 });

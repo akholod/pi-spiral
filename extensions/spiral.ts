@@ -5,6 +5,7 @@
 //   - delegate each role to a child agent through pi-agent-runner
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
+import { Text } from '@earendil-works/pi-tui';
 import { Type } from 'typebox';
 import {
   mountRunsView,
@@ -35,6 +36,13 @@ import {
 import { preflightModels } from '../src/ralplan/preflight.ts';
 import { formatUsage } from '../src/ralplan/artifact.ts';
 import type { LoopProgress } from '../src/ralplan/loop.ts';
+import {
+  PROGRESS_ENTRY_TYPE,
+  progressEntry,
+  renderProgressText,
+  withProgressSummary,
+  type ProgressEntryData,
+} from '../src/ralplan/summary.ts';
 import type {
   CheckpointDecision,
   CheckpointHandler,
@@ -50,9 +58,12 @@ import { formatPrdStatus, prdStatus } from '../src/ralph/prd.ts';
 import type { RalphResult } from '../src/ralph/types.ts';
 
 const formatProgress = (progress: LoopProgress): string =>
-  `[ralplan] iteration ${progress.iteration}: ` +
-  `${progress.role} ${progress.phase}` +
-  `${progress.detail ? ` (${progress.detail})` : ''}`;
+  withProgressSummary(
+    `[ralplan] iteration ${progress.iteration}: ` +
+      `${progress.role} ${progress.phase}` +
+      `${progress.detail ? ` (${progress.detail})` : ''}`,
+    progress.summary,
+  );
 
 const isSuccess = (result: RalplanResult): boolean =>
   result.outcome === 'approved' || result.outcome === 'exhausted';
@@ -121,9 +132,11 @@ const notStarted = (label: 'ralplan' | 'ralph', error: string) => ({
 });
 
 const formatRalphProgress = (progress: RalphProgress): string =>
-  `[ralph] iteration ${progress.iteration}: ${progress.role} ${progress.phase}${
-    progress.detail ? ` (${progress.detail})` : ''
-  }`;
+  withProgressSummary(
+    `[ralph] iteration ${progress.iteration}: ${progress.role} ` +
+      `${progress.phase}${progress.detail ? ` (${progress.detail})` : ''}`,
+    progress.summary,
+  );
 
 const summarizeRalph = (result: RalphResult): string => {
   const status = prdStatus(result.prd);
@@ -238,6 +251,31 @@ const makeCheckpointHandler =
   };
 
 export default function spiralExtension(pi: ExtensionAPI) {
+  pi.registerEntryRenderer<ProgressEntryData>(
+    PROGRESS_ENTRY_TYPE,
+    (entry, _options, theme) =>
+      entry.data
+        ? new Text(
+            renderProgressText(entry.data, (color, text) =>
+              theme.fg(color, text),
+            ),
+            0,
+            0,
+          )
+        : undefined,
+  );
+
+  // 'finished' events persist in the transcript (never sent to the model);
+  // 'started' ones are transient notifications.
+  const persistFinished = (
+    progress: { phase: 'started' | 'finished'; detail?: string },
+    text: string,
+  ): boolean => {
+    if (progress.phase !== 'finished') return false;
+    pi.appendEntry(PROGRESS_ENTRY_TYPE, progressEntry(text, progress.detail));
+    return true;
+  };
+
   let loaded: LoadedConfig | null = null;
   let runsView: { dispose(): void } | undefined;
   const parentOf = (ctx: ExtensionContext): ParentContext => ({
@@ -410,8 +448,10 @@ export default function spiralExtension(pi: ExtensionAPI) {
             ? makeCheckpointHandler(pi, ctx)
             : undefined,
           signal: controller.signal,
-          onProgress: (progress) =>
-            ctx.ui.notify(formatProgress(progress), 'info'),
+          onProgress: (progress) => {
+            const text = formatProgress(progress);
+            if (!persistFinished(progress, text)) ctx.ui.notify(text, 'info');
+          },
         });
       } finally {
         running.delete(controller);
@@ -515,11 +555,14 @@ export default function spiralExtension(pi: ExtensionAPI) {
         deliberate: params.deliberate === true,
         models: params.models,
         signal,
-        onProgress: (progress) =>
+        onProgress: (progress) => {
+          const text = formatProgress(progress);
+          persistFinished(progress, text);
           onUpdate?.({
-            content: [{ type: 'text', text: formatProgress(progress) }],
+            content: [{ type: 'text', text }],
             details: { iteration: progress.iteration, role: progress.role },
-          }),
+          });
+        },
       });
       // pi treats a tool call as failed only when execute throws.
       if (!isSuccess(result)) throw new Error(summarize(result));
@@ -622,8 +665,10 @@ export default function spiralExtension(pi: ExtensionAPI) {
                 'with the files as they are?',
             ),
           signal: controller.signal,
-          onProgress: (progress) =>
-            ctx.ui.notify(formatRalphProgress(progress), 'info'),
+          onProgress: (progress) => {
+            const text = formatRalphProgress(progress);
+            if (!persistFinished(progress, text)) ctx.ui.notify(text, 'info');
+          },
         });
       } finally {
         ralphRunning.delete(controller);
@@ -761,11 +806,14 @@ export default function spiralExtension(pi: ExtensionAPI) {
         reviewerAgent: params.reviewerAgent,
         models: params.models,
         signal,
-        onProgress: (progress) =>
+        onProgress: (progress) => {
+          const text = formatRalphProgress(progress);
+          persistFinished(progress, text);
           onUpdate?.({
-            content: [{ type: 'text', text: formatRalphProgress(progress) }],
+            content: [{ type: 'text', text }],
             details: { iteration: progress.iteration, role: progress.role },
-          }),
+          });
+        },
       });
       // pi treats a tool call as failed only when execute throws.
       if (result.outcome !== 'completed') {

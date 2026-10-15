@@ -62,6 +62,15 @@ import {
   type RunStore,
 } from './state.ts';
 import {
+  baselineSummary,
+  cleanerSummary,
+  executorSummary,
+  type ExecutorOutcome,
+  reviewerSummary,
+  storyLabel,
+  verifySummary,
+} from './summary.ts';
+import {
   EXECUTOR_REPORT_SCHEMA,
   REVIEW_REPORT_SCHEMA,
   type ExecutorReport,
@@ -84,6 +93,8 @@ export interface RalphProgress {
   role: RalphRole;
   phase: 'started' | 'finished';
   detail?: string;
+  // 1-3 short single-line digests of what the role concluded; 'finished' only
+  summary?: string[];
 }
 
 export type Delegate = typeof delegate;
@@ -358,9 +369,18 @@ export const runRalphLoop = async (
     task: string,
     schema?: Record<string, unknown>,
     storyId?: string,
+    // startDetail: shown on the 'started' event. deferFinish: a completed
+    // child's 'finished' event is left to the caller, which knows the
+    // outcome only after judging the result (see `finished`).
+    extra: { startDetail?: string; deferFinish?: boolean } = {},
   ): Promise<DelegationResponse> => {
     const iteration = state.iterations;
-    options.onProgress?.({ iteration, role, phase: 'started' });
+    options.onProgress?.({
+      iteration,
+      role,
+      phase: 'started',
+      detail: extra.startDetail,
+    });
     const response = await run(options.parent, {
       ownerRunId: request.runId,
       nodeId,
@@ -381,14 +401,30 @@ export const runRalphLoop = async (
     addUsage(usage, response);
     state.tokensSpent +=
       (response.usage?.input ?? 0) + (response.usage?.output ?? 0);
-    options.onProgress?.({
-      iteration,
-      role,
-      phase: 'finished',
-      detail: response.status,
-    });
+    if (!extra.deferFinish || response.status !== 'completed') {
+      options.onProgress?.({
+        iteration,
+        role,
+        phase: 'finished',
+        detail: response.status,
+      });
+    }
     return response;
   };
+
+  // The deferred 'finished' event of a child run.
+  const finished = (
+    role: Exclude<RalphRole, 'verify' | 'prd'>,
+    summary?: string[],
+    detail = 'completed',
+  ): void =>
+    options.onProgress?.({
+      iteration: state.iterations,
+      role,
+      phase: 'finished',
+      detail,
+      summary,
+    });
 
   const entry = (partial: Omit<ProgressEntry, 'timestamp'>): void => {
     state.entries.push({ timestamp: new Date().toISOString(), ...partial });
@@ -454,6 +490,7 @@ export const runRalphLoop = async (
       role: 'verify',
       phase: 'finished',
       detail: 'baseline',
+      summary: baselineSummary(known),
     });
     persist();
     return true;
@@ -497,6 +534,7 @@ export const runRalphLoop = async (
       role: 'verify',
       phase: 'finished',
       detail: state.verification,
+      summary: verifySummary(judged),
     });
     lastVerify = results;
     return judged;
@@ -515,25 +553,30 @@ export const runRalphLoop = async (
     if (delta) addUnique(state.changedFiles, delta);
   };
 
+  // The caller emits the executor's 'finished' event (see `finished`)
+  // once the attempt's outcome is known.
   const executor = async (
     nodeId: string,
     task: string,
-    storyId?: string,
-  ): Promise<ExecutorReport> =>
-    asExecutorReport(
-      structuredOf(
-        'executor',
-        await child(
-          'executor',
-          config.roles.executor,
-          ROLE_AGENT_NAMES.executor,
-          nodeId,
-          task,
-          EXECUTOR_REPORT_SCHEMA,
-          storyId,
-        ),
-      ),
+    story?: Story,
+  ): Promise<ExecutorReport> => {
+    const response = await child(
+      'executor',
+      config.roles.executor,
+      ROLE_AGENT_NAMES.executor,
+      nodeId,
+      task,
+      EXECUTOR_REPORT_SCHEMA,
+      story?.id,
+      { startDetail: story && storyLabel(story), deferFinish: true },
     );
+    try {
+      return asExecutorReport(structuredOf('executor', response));
+    } catch (error) {
+      finished('executor', undefined, 'malformed');
+      throw error;
+    }
+  };
 
   // One story attempt; returns a terminal outcome when the loop must stop.
   const attemptStory = async (
@@ -551,7 +594,7 @@ export const runRalphLoop = async (
         lastVerify,
         preexisting: preexisting(),
       }),
-      story.id,
+      story,
     );
     await recordChangedFiles(report.filesChanged);
     // touched by this attempt: what it reported plus the files it added to
@@ -604,6 +647,18 @@ export const runRalphLoop = async (
       });
       state.blockers = blockers;
       state.haltKind = 'user-input';
+      finished(
+        'executor',
+        executorSummary({
+          storyId: story.id,
+          outcome: 'blocked',
+          attempt: story.attempts,
+          maxAttempts: MAX_STORY_ATTEMPTS,
+          report: report.summary,
+          filesChanged: report.filesChanged,
+          problem: blockers,
+        }),
+      );
       return 'blocked';
     }
 
@@ -637,7 +692,23 @@ export const runRalphLoop = async (
       filesChanged: report.filesChanged,
       learnings: report.learnings,
     });
-    if (outcome === 'failed' && story.attempts >= MAX_STORY_ATTEMPTS) {
+    const struck = outcome === 'failed' && story.attempts >= MAX_STORY_ATTEMPTS;
+    let digestOutcome: ExecutorOutcome = 'retry';
+    if (outcome === 'passed') digestOutcome = 'pass';
+    else if (struck) digestOutcome = 'blocked';
+    finished(
+      'executor',
+      executorSummary({
+        storyId: story.id,
+        outcome: digestOutcome,
+        attempt: story.attempts,
+        maxAttempts: MAX_STORY_ATTEMPTS,
+        report: report.summary,
+        filesChanged: report.filesChanged,
+        problem: outcome === 'passed' ? undefined : problems[0],
+      }),
+    );
+    if (struck) {
       state.blockers =
         `${story.id} failed ${story.attempts} attempts: ` +
         `${problems.join('; ')}`;
@@ -679,30 +750,37 @@ export const runRalphLoop = async (
     });
   };
 
+  // The caller emits the reviewer's 'finished' event once the verdict has
+  // been applied to the PRD.
   const review = async (): Promise<ReviewReport> => {
     const reviewerAgent = ROLE_AGENT_NAMES[request.reviewerAgent];
-    const report = asReviewReport(
-      structuredOf(
-        'reviewer',
-        await child(
-          'reviewer',
-          config.roles.reviewer,
-          reviewerAgent,
-          `ralph-${state.iterations}-reviewer-${state.reviewRounds}`,
-          buildReviewerTask(prd, {
-            round: state.reviewRounds,
-            maxRounds: config.maxReviewAttempts,
-            reviewerLabel: request.reviewerAgent,
-            changedFiles: state.changedFiles,
-            verify: lastVerify ?? [],
-            previous: state.reviews.at(-1) ?? null,
-            preexisting: preexisting(),
-          }),
-          REVIEW_REPORT_SCHEMA,
-        ),
-      ),
+    const response = await child(
+      'reviewer',
+      config.roles.reviewer,
+      reviewerAgent,
+      `ralph-${state.iterations}-reviewer-${state.reviewRounds}`,
+      buildReviewerTask(prd, {
+        round: state.reviewRounds,
+        maxRounds: config.maxReviewAttempts,
+        reviewerLabel: request.reviewerAgent,
+        changedFiles: state.changedFiles,
+        verify: lastVerify ?? [],
+        previous: state.reviews.at(-1) ?? null,
+        preexisting: preexisting(),
+      }),
+      REVIEW_REPORT_SCHEMA,
+      undefined,
+      { deferFinish: true },
     );
-    return normalizeReview(prd, report);
+    try {
+      return normalizeReview(
+        prd,
+        asReviewReport(structuredOf('reviewer', response)),
+      );
+    } catch (error) {
+      finished('reviewer', undefined, 'malformed');
+      throw error;
+    }
   };
 
   // OMC 7.5 + 7.6: cleanup pass, scope check, regression re-verification
@@ -713,20 +791,27 @@ export const runRalphLoop = async (
     outOfScope: string[];
   }> => {
     const scope = new Set(state.changedFiles);
-    const summary = textOf(
+    const cleaned = await child(
       'cleaner',
-      await child(
-        'cleaner',
-        config.roles.cleaner,
-        ROLE_AGENT_NAMES.cleaner,
-        `ralph-${state.iterations}-cleaner`,
-        buildCleanerTask(
-          state.changedFiles,
-          verifyCommands,
-          prd.repoQualityClass,
-        ),
+      config.roles.cleaner,
+      ROLE_AGENT_NAMES.cleaner,
+      `ralph-${state.iterations}-cleaner`,
+      buildCleanerTask(
+        state.changedFiles,
+        verifyCommands,
+        prd.repoQualityClass,
       ),
+      undefined,
+      undefined,
+      { deferFinish: true },
     );
+    let summary: string;
+    try {
+      summary = textOf('cleaner', cleaned);
+    } catch (error) {
+      finished('cleaner', undefined, 'failed');
+      throw error;
+    }
     entry({
       storyId: 'deslop',
       attempt: 1,
@@ -736,7 +821,7 @@ export const runRalphLoop = async (
       learnings: [],
     });
     let judged = await verify(state.changedFiles);
-    let repaired = false;
+    let repairs = 0;
     for (
       let fix = 1;
       judged.newFailures.length > 0 && fix <= MAX_REGRESSION_FIXES;
@@ -752,7 +837,7 @@ export const runRalphLoop = async (
           preexisting(),
         ),
       );
-      repaired = true;
+      repairs++;
       entry({
         storyId: 'deslop',
         attempt: fix,
@@ -762,10 +847,34 @@ export const runRalphLoop = async (
         learnings: report.learnings,
       });
       judged = await verify(state.changedFiles);
+      finished(
+        'executor',
+        executorSummary({
+          storyId: 'regression fix',
+          outcome: judged.newFailures.length === 0 ? 'pass' : 'retry',
+          attempt: fix,
+          maxAttempts: MAX_REGRESSION_FIXES,
+          report: report.summary,
+          filesChanged: report.filesChanged,
+        }),
+      );
     }
+    finished(
+      'cleaner',
+      cleanerSummary({
+        report: summary,
+        scopeFiles: scope.size,
+        repairs,
+        ok: judged.newFailures.length === 0,
+      }),
+    );
     const delta = await gitDelta();
     const outOfScope = delta ? delta.filter((f) => !scope.has(f)) : [];
-    return { ok: judged.newFailures.length === 0, repaired, outOfScope };
+    return {
+      ok: judged.newFailures.length === 0,
+      repaired: repairs > 0,
+      outOfScope,
+    };
   };
 
   try {
@@ -811,7 +920,16 @@ export const runRalphLoop = async (
       const report = await review();
       state.reviews.push(report);
       if (report.verdict !== 'APPROVE') {
+        const known = new Set(prd.userStories.map((s) => s.id));
         const reopened = applyRejection(prd, report, state.reviewRounds);
+        finished(
+          'reviewer',
+          reviewerSummary({
+            report,
+            reopened,
+            added: reopened.filter((id) => !known.has(id)),
+          }),
+        );
         entry({
           storyId: 'review',
           attempt: state.reviewRounds,
@@ -823,6 +941,10 @@ export const runRalphLoop = async (
         persist();
         continue;
       }
+      finished(
+        'reviewer',
+        reviewerSummary({ report, reopened: [], added: [] }),
+      );
       for (const story of prd.userStories) story.reviewerVerified = true;
       entry({
         storyId: 'review',
