@@ -356,6 +356,82 @@ test('a criterion claimed met without evidence does not pass', async () => {
   assert.match(result.prd.userStories[0].notes[0], /without evidence/);
 });
 
+// Regression: a mis-numbered report (1-based indices shifted by one) paired
+// criterion 1 with criterion 2's short evidence and rejected a fully
+// evidenced attempt. The verbatim text must win over a wrong number.
+test('evidence is matched by criterion text when indices are shifted', async () => {
+  const fake = fakeDelegate({
+    executor: (story, call) => {
+      const report = done(story, CRITERIA[story]);
+      if (story === 'US-001') {
+        report.criteria = [
+          {
+            index: 2,
+            criterion: 'f() returns 1',
+            met: true,
+            evidence: 'node -e "console.log(f())" printed 1',
+          },
+          {
+            index: 1,
+            criterion: 'test/a.test.ts passes',
+            met: true,
+            evidence: 'npm test: 3 passing, 0 failing',
+          },
+        ];
+      }
+      void call;
+      return report;
+    },
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'completed', why(result));
+  assert.equal(fake.counts['exec:US-001'], 1);
+});
+
+test('the evidence retry note names the criterion lacking evidence', async () => {
+  const fake = fakeDelegate({
+    executor: (story, call) => {
+      const report = done(story, CRITERIA[story]);
+      if (story === 'US-001' && call === 1) report.criteria[1].evidence = 'ok';
+      return report;
+    },
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'completed', why(result));
+  const note = result.prd.userStories[0].notes[0];
+  assert.match(note, /#2 "test\/a\.test\.ts passes"/);
+  assert.match(note, /reported evidence: "ok", 2 chars/);
+  assert.doesNotMatch(note, /#1 "f\(\) returns 1"/);
+});
+
+test('the reviewer task carries the loop evidence and the no-execution rule', async () => {
+  const fake = fakeDelegate({
+    executor: (story) => ({
+      ...done(story, CRITERIA[story]),
+      criteria: CRITERIA[story].map((criterion, i) => ({
+        index: i + 1,
+        criterion,
+        met: true,
+        evidence: `smoke ${story}#${i + 1}: node -e printed 5`,
+      })),
+    }),
+  });
+  const result = await run(fake);
+  assert.equal(result.outcome, 'completed', why(result));
+  const task = fake.calls.find((c) => c.agent === 'spiral-critic')?.task ?? '';
+  assert.match(task, /CANNOT run\s+commands/);
+  assert.match(task, /AUTHORITATIVE/);
+  assert.match(task, /NEVER a blocking finding/);
+  assert.match(task, /## Executor evidence per criterion/);
+  assert.match(task, /US-001:\n- #1: smoke US-001#1: node -e printed 5/);
+  assert.match(task, /- #2: smoke US-001#2/);
+  assert.match(task, /US-002:\n- #1: smoke US-002#1/);
+  assert.match(task, /\$ true\n\[OK exit 0\]/);
+  assert.match(task, /## Verify run vs\. baseline/);
+  assert.match(task, /New failures: none/);
+  assert.match(task, /## Git delta/);
+});
+
 test('executor blocked -> outcome blocked with the blockers', async () => {
   const fake = fakeDelegate({
     executor: (story) =>
@@ -644,6 +720,12 @@ test(
     assert.deepEqual(reopened, ['US-001']);
     assert.match(prd.userStories[0].notes[0], /VERIFIED without evidence/);
     assert.equal(normalizeReview(prd, approve(prd)).verdict, 'APPROVE');
+    // citing the loop's evidence counts as evidence
+    const cited = approve(prd);
+    for (const c of cited.criteria) {
+      c.evidence = 'loop verify run: `npm test` exit 0';
+    }
+    assert.equal(normalizeReview(prd, cited).verdict, 'APPROVE');
   },
 );
 

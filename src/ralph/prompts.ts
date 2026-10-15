@@ -275,6 +275,14 @@ export const buildExecutorTask = (
 // Reviewer: completion verification (OMC verifier prompt + codex critic
 // directives: acceptance criteria, related code, optimality, changed files).
 
+// Failure lines of the latest verify run judged against the feedback
+// baseline (see baseline.ts).
+export interface ReviewBaselineDiff {
+  newFailures: string[];
+  baselineFailures: string[];
+  resolved: string[];
+}
+
 export interface ReviewContext {
   round: number;
   maxRounds: number;
@@ -283,7 +291,98 @@ export interface ReviewContext {
   verify: CommandResult[];
   previous: ReviewReport | null;
   preexisting?: string[];
+  baselineDiff?: ReviewBaselineDiff | null;
+  // working-tree delta since the run began (null outside a git work tree)
+  git?: { delta: string[] | null; headChanged: boolean };
 }
+
+// Bounds of the evidence the loop hands the reviewer.
+const REVIEW_TAIL = 1200;
+const REVIEW_EVIDENCE_PER_CRITERION = 400;
+const REVIEW_EVIDENCE_TOTAL = 8000;
+const REVIEW_VERIFY_TOTAL = 8000;
+const REVIEW_DIFF_LINES = 10;
+
+const clipEnd = (text: string, max: number): string =>
+  text.length > max ? `[...]${text.slice(-max)}` : text;
+
+const clipStart = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max)}[...]` : text;
+
+// Executor evidence the loop recorded per active criterion; bounded.
+export const formatExecutorEvidence = (prd: Prd): string[] => {
+  const lines: string[] = [];
+  let used = 0;
+  for (const story of [...prd.userStories].sort(
+    (a, b) => a.priority - b.priority,
+  )) {
+    const recorded = story.evidence ?? [];
+    const rows = story.acceptanceCriteria.flatMap((criterion, i) => {
+      const found = recorded.find((e) => e.criterion === criterion);
+      return found ? [{ n: i + 1, evidence: found.evidence }] : [];
+    });
+    if (rows.length === 0) continue;
+    lines.push(`${story.id}:`);
+    for (const row of rows) {
+      const line = `- #${row.n}: ${clipStart(
+        row.evidence.replace(/\s+/g, ' '),
+        REVIEW_EVIDENCE_PER_CRITERION,
+      )}`;
+      if (used + line.length > REVIEW_EVIDENCE_TOTAL) {
+        lines.push('- (further evidence omitted: size cap)');
+        return lines;
+      }
+      used += line.length;
+      lines.push(line);
+    }
+  }
+  return lines.length > 0 ? lines : ['(none recorded)'];
+};
+
+// Latest verify run: exit status and a clipped output tail per command,
+// total bounded.
+export const formatReviewVerify = (results: CommandResult[]): string => {
+  if (results.length === 0) return '(no verify commands configured)';
+  const budget = Math.max(
+    200,
+    Math.min(REVIEW_TAIL, Math.floor(REVIEW_VERIFY_TOTAL / results.length)),
+  );
+  return results
+    .map((r) => {
+      const status = r.ok ? 'OK exit 0' : `FAILED exit ${r.exitCode ?? '?'}`;
+      return `$ ${r.command}\n[${status}]\n${clipEnd(r.output, budget)}`;
+    })
+    .join('\n\n');
+};
+
+const diffLines = (label: string, items: string[]): string[] =>
+  items.length === 0
+    ? [`${label}: none`]
+    : [
+        `${label}:`,
+        ...items
+          .slice(0, REVIEW_DIFF_LINES)
+          .map((i) => `- ${clipStart(i, 300)}`),
+        ...(items.length > REVIEW_DIFF_LINES
+          ? [`- (+${items.length - REVIEW_DIFF_LINES} more)`]
+          : []),
+      ];
+
+const GIT_DELTA_MAX = 50;
+
+const formatGitDelta = (delta: string[] | null): string[] => {
+  if (delta === null) return ['Not a git work tree.'];
+  if (delta.length === 0) {
+    return ['No uncommitted changes relative to the start of the run.'];
+  }
+  return [
+    `Uncommitted changes since the run began (${delta.length}):`,
+    ...delta.slice(0, GIT_DELTA_MAX).map((f) => `- ${f}`),
+    ...(delta.length > GIT_DELTA_MAX
+      ? [`- (+${delta.length - GIT_DELTA_MAX} more)`]
+      : []),
+  ];
+};
 
 export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
   const lines = [
@@ -296,9 +395,16 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     'A false approval costs far more than a false rejection; do not approve',
     'on impressions, only on evidence you gathered yourself.',
     '',
-    'You are read-only. The loop already ran the regression commands and',
-    'gives you their fresh output; read code and tests to verify everything',
-    'else.',
+    'You are read-only: you can read, grep, find and ls, but you CANNOT run',
+    'commands (no shell, no tests, no git). The loop already ran the',
+    "regression commands and recorded the executor's evidence; both are",
+    'given below and are AUTHORITATIVE for what ran and what it printed.',
+    'Judge each criterion against the code you read plus this evidence.',
+    'Your own inability to execute anything, or evidence you cannot',
+    'reproduce yourself, is NEVER a blocking finding: do not demand',
+    'environment, smoke-command or git output. Reject only when the code',
+    'contradicts a criterion, the loop evidence shows a failure, or the',
+    'evidence does not cover a criterion.',
     '',
     '## PRD',
     '',
@@ -311,9 +417,41 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     '',
     '## Regression commands (run by the loop just now)',
     '',
-    formatCommandResults(ctx.verify),
+    formatReviewVerify(ctx.verify),
     '',
   ];
+  if (ctx.baselineDiff) {
+    lines.push(
+      '## Verify run vs. baseline (before the first story)',
+      '',
+      ...diffLines('New failures', ctx.baselineDiff.newFailures),
+      ...diffLines('Baseline failures', ctx.baselineDiff.baselineFailures),
+      ...diffLines('Resolved', ctx.baselineDiff.resolved),
+      '',
+    );
+  }
+  if (ctx.git) {
+    lines.push(
+      '## Git delta (computed by the loop; the loop never commits)',
+      '',
+      ...formatGitDelta(ctx.git.delta),
+      ctx.git.headChanged
+        ? 'HEAD moved during the run (a child committed).'
+        : 'HEAD unchanged during the run.',
+      '',
+    );
+  }
+  lines.push(
+    '## Executor evidence per criterion (recorded by the loop)',
+    '',
+    'Numbers are the criterion numbers of each story above. The loop',
+    'accepted each entry (non-trivial, criterion reported met) and re-ran the',
+    'regression commands after it; cite it as "executor evidence" when it',
+    'is what conclusively supports a criterion.',
+    '',
+    ...formatExecutorEvidence(prd),
+    '',
+  );
   lines.push(qualityClassLine('reviewer', prd.repoQualityClass), '');
   const preexisting = formatPreexisting(ctx.preexisting ?? []);
   if (preexisting) lines.push(preexisting, '');
@@ -334,7 +472,8 @@ export const buildReviewerTask = (prd: Prd, ctx: ReviewContext): string => {
     '## What to verify',
     '',
     '1. EACH active acceptance criterion of EACH story, individually, with',
-    '   concrete evidence (file:line, test name, command output). Status',
+    '   concrete evidence (file:line, test name, or the loop evidence above,',
+    '   e.g. "loop verify run: `npm test` exit 0"). Status',
     '   VERIFIED only when the evidence is conclusive; PARTIAL or MISSING',
     '   otherwise. Cover every criterion: an uncovered criterion blocks',
     "   approval. Report `storyId` and `index` (the criterion's number in",

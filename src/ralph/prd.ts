@@ -40,6 +40,12 @@ export const DEFAULT_QUALITY_CLASS: RepoQualityClass = 'production';
 export const parseQualityClass = (value: unknown): RepoQualityClass =>
   REPO_QUALITY_CLASSES.find((c) => c === value) ?? DEFAULT_QUALITY_CLASS;
 
+// The executor's evidence for one criterion, as accepted by the loop.
+export interface CriterionEvidence {
+  criterion: string;
+  evidence: string;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -54,6 +60,8 @@ export interface Story {
   reviewerVerified: boolean;
   attempts: number;
   notes: string[];
+  // evidence of the attempt that passed; shown to the (read-only) reviewer
+  evidence?: CriterionEvidence[];
 }
 
 export interface Prd {
@@ -113,14 +121,20 @@ export const prdStatus = (prd: Prd): PrdStatus => {
   };
 };
 
-export const markStoryPassed = (story: Story, note: string): void => {
+export const markStoryPassed = (
+  story: Story,
+  note: string,
+  evidence?: CriterionEvidence[],
+): void => {
   story.passes = true;
   story.reviewerVerified = false;
   story.notes.push(note);
+  if (evidence) story.evidence = evidence;
 };
 
 export const markStoryFailed = (story: Story, note: string): void => {
   story.passes = false;
+  delete story.evidence;
   story.reviewerVerified = false;
   story.notes.push(note);
 };
@@ -338,6 +352,20 @@ const normalizeAmendment = (raw: unknown): CriterionAmendment | null => {
   };
 };
 
+// Optional field: anything malformed is dropped rather than failing resume.
+const normalizeEvidence = (raw: unknown): CriterionEvidence[] => {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(
+      (e): e is CriterionEvidence =>
+        typeof e === 'object' &&
+        e !== null &&
+        typeof e.criterion === 'string' &&
+        typeof e.evidence === 'string',
+    )
+    .map((e) => ({ criterion: e.criterion, evidence: e.evidence }));
+};
+
 const normalizeStory = (raw: unknown): Story | null => {
   if (typeof raw !== 'object' || raw === null) return null;
   const s = raw as Record<string, unknown>;
@@ -363,6 +391,7 @@ const normalizeStory = (raw: unknown): Story | null => {
   const amendments = rawAmendments.map(normalizeAmendment);
   if (amendments.some((a) => a === null)) return null;
   const ledger = amendments as CriterionAmendment[];
+  const evidence = normalizeEvidence(s.evidence);
   // invariants: an amended original is no longer active, amended only once
   const originals = new Set<string>();
   for (const a of ledger) {
@@ -385,6 +414,7 @@ const normalizeStory = (raw: unknown): Story | null => {
     reviewerVerified: s.reviewerVerified,
     attempts: s.attempts as number,
     notes: s.notes,
+    ...(evidence.length > 0 ? { evidence } : {}),
   };
 };
 
@@ -510,18 +540,38 @@ const normalizeCriterion = (text: string): string =>
     .replace(/\s+/g, ' ')
     .trim();
 
-// A child's report entry for criterion `index` (0-based) of a story: by the
-// reported number first, then by text. Models paraphrase criteria, so exact
-// text alone dropped verified criteria (found live with gpt-6-luna).
+const evidenceLength = (e: { evidence?: string }): number =>
+  (e.evidence ?? '').trim().length;
+
+// Entry with the most substantive evidence (first wins ties): a child that
+// reports a criterion twice must not be judged by its weaker entry.
+const strongest = <T extends { evidence?: string }>(
+  entries: T[],
+): T | undefined =>
+  entries.reduce<T | undefined>(
+    (best, e) => (!best || evidenceLength(e) > evidenceLength(best) ? e : best),
+    undefined,
+  );
+
+// A child's report entry for criterion `index` (0-based) of a story. Models
+// paraphrase criteria (exact text alone dropped verified criteria, found
+// live with gpt-6-luna) but also mis-number them (0-based, shifted), so an
+// entry whose number AND text agree wins, then verbatim text, then the
+// number alone: a wrong number must not pair a criterion with another
+// criterion's evidence.
 export const findCriterionEntry = <
-  T extends { index?: number; criterion: string },
+  T extends { index?: number; criterion: string; evidence?: string },
 >(
   entries: T[],
   criteria: string[],
   index: number,
 ): T | undefined => {
-  const byIndex = entries.find((e) => e.index === index + 1);
-  if (byIndex) return byIndex;
   const wanted = normalizeCriterion(criteria[index]);
-  return entries.find((e) => normalizeCriterion(e.criterion) === wanted);
+  const sameText = entries.filter(
+    (e) => normalizeCriterion(e.criterion) === wanted,
+  );
+  const both = sameText.filter((e) => e.index === index + 1);
+  if (both.length > 0) return strongest(both);
+  if (sameText.length > 0) return strongest(sameText);
+  return strongest(entries.filter((e) => e.index === index + 1));
 };

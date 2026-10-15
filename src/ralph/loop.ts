@@ -124,6 +124,13 @@ const BLOCKING = new Set(['CRITICAL', 'MAJOR']);
 const hasEvidence = (evidence: string): boolean =>
   evidence.trim().length >= MIN_EVIDENCE_LENGTH;
 
+const clip = (text: string, max: number): string =>
+  text.length > max ? `${text.slice(0, max - 1)}…` : text;
+
+// Names a criterion by its number and (clipped) text in retry notes.
+const describeCriterion = (index: number, criterion: string): string =>
+  `#${index + 1} "${clip(criterion, 100)}"`;
+
 // Enforces the reviewer contract in code: APPROVE needs every active
 // criterion of every story VERIFIED with substantive evidence and no
 // CRITICAL/MAJOR finding.
@@ -253,6 +260,7 @@ interface Judged {
   results: CommandResult[];
   newFailures: string[];
   baselineFailures: string[];
+  resolved: string[];
 }
 
 // Commands (in run order) that have a new failure line.
@@ -272,6 +280,7 @@ export const runRalphLoop = async (
   let deslop: RalphResult['deslop'] = 'skipped';
   if (request.deslop) deslop = state.cleanupDone ? 'done' : 'not-reached';
   let lastVerify: CommandResult[] | null = null;
+  let lastJudged: Judged | null = null;
   let budgetStopped = false;
   // a halt kind from an earlier stop of a resumed run no longer applies
   delete state.haltKind;
@@ -445,6 +454,7 @@ export const runRalphLoop = async (
       results,
       newFailures: diff.newFailures,
       baselineFailures: diff.baselineFailures,
+      resolved: diff.resolved,
     };
   };
 
@@ -503,7 +513,12 @@ export const runRalphLoop = async (
   const verify = async (touched: string[]): Promise<Judged> => {
     if (verifyCommands.length === 0) {
       state.verification = 'none';
-      return { results: [], newFailures: [], baselineFailures: [] };
+      return {
+        results: [],
+        newFailures: [],
+        baselineFailures: [],
+        resolved: [],
+      };
     }
     const iteration = state.iterations;
     options.onProgress?.({ iteration, role: 'verify', phase: 'started' });
@@ -537,6 +552,7 @@ export const runRalphLoop = async (
       summary: verifySummary(judged),
     });
     lastVerify = results;
+    lastJudged = judged;
     return judged;
   };
 
@@ -621,8 +637,15 @@ export const runRalphLoop = async (
         i,
       );
       const check = found?.met ? found : undefined;
-      if (!check) unmet.push(criterion);
-      else if (!hasEvidence(check.evidence)) unsupported.push(criterion);
+      if (!check) {
+        unmet.push(describeCriterion(i, criterion));
+      } else if (!hasEvidence(check.evidence)) {
+        unsupported.push(
+          `${describeCriterion(i, criterion)} (reported evidence: ` +
+            `${JSON.stringify(clip(check.evidence.trim(), 60))}, ` +
+            `${check.evidence.trim().length} chars)`,
+        );
+      }
     });
     if (unmet.length > 0) {
       problems.push(`criteria not met or not reported: ${unmet.join(' | ')}`);
@@ -666,7 +689,19 @@ export const runRalphLoop = async (
     if (report.status === 'done' && problems.length === 0) {
       const judged = await verify(touched);
       if (judged.newFailures.length === 0) {
-        markStoryPassed(story, report.summary);
+        markStoryPassed(
+          story,
+          report.summary,
+          story.acceptanceCriteria.flatMap((criterion, i) => {
+            const found = findCriterionEntry(
+              report.criteria,
+              story.acceptanceCriteria,
+              i,
+            );
+            if (!found) return [];
+            return [{ criterion, evidence: found.evidence.trim() }];
+          }),
+        );
         outcome = 'passed';
       } else {
         problems.push(
@@ -754,6 +789,8 @@ export const runRalphLoop = async (
   // been applied to the PRD.
   const review = async (): Promise<ReviewReport> => {
     const reviewerAgent = ROLE_AGENT_NAMES[request.reviewerAgent];
+    const delta = await gitDelta();
+    const head = await gitHead(request.cwd);
     const response = await child(
       'reviewer',
       config.roles.reviewer,
@@ -765,6 +802,15 @@ export const runRalphLoop = async (
         reviewerLabel: request.reviewerAgent,
         changedFiles: state.changedFiles,
         verify: lastVerify ?? [],
+        baselineDiff: lastJudged && {
+          newFailures: lastJudged.newFailures,
+          baselineFailures: lastJudged.baselineFailures,
+          resolved: lastJudged.resolved,
+        },
+        git: {
+          delta,
+          headChanged: state.gitHead !== null && head !== state.gitHead,
+        },
         previous: state.reviews.at(-1) ?? null,
         preexisting: preexisting(),
       }),

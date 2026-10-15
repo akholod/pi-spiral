@@ -22,6 +22,20 @@ test('findCriterionEntry: by index first, then normalized text', () => {
   );
 });
 
+test('findCriterionEntry: text beats a wrong number, strongest duplicate wins', () => {
+  const entries = [
+    { index: 2, criterion: criteria[0], evidence: 'long enough evidence' },
+    { index: 1, criterion: criteria[1], evidence: 'ok' },
+  ];
+  assert.equal(findCriterionEntry(entries, criteria, 0), entries[0]);
+  assert.equal(findCriterionEntry(entries, criteria, 1), entries[1]);
+  const twice = [
+    { index: 1, criterion: criteria[0], evidence: 'x' },
+    { index: 1, criterion: criteria[0], evidence: 'a real measurement' },
+  ];
+  assert.equal(findCriterionEntry(twice, criteria, 0), twice[1]);
+});
+
 // Captured live: gpt-6-luna verified every criterion but paraphrased them,
 // and exact-text matching downgraded the APPROVE.
 test('paraphrased criteria with index keep an APPROVE', () => {
