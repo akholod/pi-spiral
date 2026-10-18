@@ -4,6 +4,11 @@
   "description": "Pi extension: ralplan (consensus planning: planner + architect + critic) and ralph (persistent execution loop), ported from oh-my-claudecode",
   "type": "module",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/akholod/pi-spiral.git"
+  },
+  "homepage": "https://github.com/akholod/pi-spiral#readme",
   "keywords": [
     "pi-package",
     "pi",

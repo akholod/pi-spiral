@@ -1,4 +1,4 @@
-![pi-spiral: code-enforced planning and execution loops for pi](assets/hero.webp)
+![pi-spiral: code-enforced planning and execution loops for pi](https://raw.githubusercontent.com/akholod/pi-spiral/main/assets/hero.webp)
 
 # pi-spiral
 
