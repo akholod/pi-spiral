@@ -1,6 +1,6 @@
 {
   "name": "pi-spiral",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Pi extension: ralplan (consensus planning: planner + architect + critic) and ralph (persistent execution loop), ported from oh-my-claudecode",
   "type": "module",
   "license": "MIT",
