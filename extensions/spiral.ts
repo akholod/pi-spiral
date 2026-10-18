@@ -6,7 +6,6 @@
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
 import { Text } from '@earendil-works/pi-tui';
-import { Type } from 'typebox';
 import {
   mountRunsView,
   registerAgentsCommand,
@@ -120,20 +119,8 @@ const RALPH_USAGE =
   'critic|architect] [--plan <artifact>] [--resume [runId]] [--prd m] ' +
   '[--executor m] [--reviewer m] [--cleaner m] <task>';
 
-const PRESET_PARAM = Type.String({
-  description:
-    'Name of a configured or built-in preset (e.g. lite, deep) that sets ' +
-    'role thinking/models and loop limits; "default" = none',
-});
-
 const presetLabel = (resolved: ResolvedPreset): string =>
   resolved.preset ? ` (preset ${resolved.preset})` : '';
-
-const notStarted = (label: 'ralplan' | 'ralph', error: string) => ({
-  content: [{ type: 'text' as const, text: `${label} not started: ${error}` }],
-  details: { outcome: 'not_started' },
-  isError: true,
-});
 
 const formatRalphProgress = (progress: RalphProgress): string =>
   withProgressSummary(
@@ -476,111 +463,6 @@ export default function spiralExtension(pi: ExtensionAPI) {
     },
   });
 
-  pi.registerTool({
-    name: 'ralplan',
-    label: 'Ralplan',
-    description:
-      'Run consensus planning (planner, architect, critic) for a task and ' +
-      'write a plan artifact marked pending approval. Does not execute ' +
-      'anything. Interactive checkpoints are not available from the tool; ' +
-      'use /ralplan --interactive for those.',
-    promptSnippet:
-      'Consensus planning loop that produces a reviewed plan artifact',
-    promptGuidelines: [
-      'Use the ralplan tool when the user asks to plan, design, or scope ' +
-        'non-trivial work before implementing, or says "ralplan".',
-      'After the ralplan tool returns, read the artifact and present it; ' +
-        'do not start implementation without user approval.',
-    ],
-    parameters: Type.Object({
-      task: Type.String({ description: 'Task description to plan' }),
-      deliberate: Type.Optional(
-        Type.Boolean({
-          description: 'Force deliberate mode (pre-mortem + expanded tests)',
-        }),
-      ),
-      models: Type.Optional(
-        Type.Object(
-          {
-            planner: Type.Optional(Type.String()),
-            architect: Type.Optional(Type.String()),
-            critic: Type.Optional(Type.String()),
-          },
-          { description: 'Per-role model overrides as provider/model ids' },
-        ),
-      ),
-      preset: Type.Optional(PRESET_PARAM),
-    }),
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      loaded = load(ctx);
-      if (loaded.fallback) {
-        const issues = loaded.issues
-          .map((issue) => `${issue.path}: ${issue.message}`)
-          .join('; ');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `ralplan not started, spiral.json is invalid: ${issues}`,
-            },
-          ],
-          details: { outcome: 'not_started' },
-          isError: true,
-        };
-      }
-      const effective = resolveFor(loaded, params.preset);
-      if (effective.error) return notStarted('ralplan', effective.error);
-      const errors = preflight(
-        ctx,
-        'ralplan',
-        applyModelOverrides(effective.config.ralplan, params.models).roles,
-        ['planner', 'critic'],
-      );
-      if (errors.length > 0) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text:
-                'ralplan not started, role models unavailable: ' +
-                `${errors.join('; ')}`,
-            },
-          ],
-          details: { outcome: 'not_started' },
-          isError: true,
-        };
-      }
-      const result = await runRalplan({
-        parent: parentOf(ctx),
-        permissionAsks: effective.config.permissionAsks,
-        config: effective.config.ralplan,
-        cwd: ctx.cwd,
-        task: params.task,
-        deliberate: params.deliberate === true,
-        models: params.models,
-        signal,
-        onProgress: (progress) => {
-          const text = formatProgress(progress);
-          persistFinished(progress, text);
-          onUpdate?.({
-            content: [{ type: 'text', text }],
-            details: { iteration: progress.iteration, role: progress.role },
-          });
-        },
-      });
-      // pi treats a tool call as failed only when execute throws.
-      if (!isSuccess(result)) throw new Error(summarize(result));
-      return {
-        content: [{ type: 'text', text: summarize(result) }],
-        details: {
-          outcome: result.outcome,
-          artifactPath: result.artifactPath,
-          iterations: result.iterations.length,
-        },
-      };
-    },
-  });
-
   pi.registerCommand('ralplan-cancel', {
     description: 'Cancel running /ralplan loops',
     handler: async (_args, ctx) => {
@@ -708,130 +590,6 @@ export default function spiralExtension(pi: ExtensionAPI) {
         `[ralph] cancelling ${ralphRunning.size} run(s)`,
         'warning',
       );
-    },
-  });
-
-  pi.registerTool({
-    name: 'ralph',
-    label: 'Ralph',
-    description:
-      'Run the ralph persistence loop: draft a PRD of user stories with ' +
-      'testable acceptance criteria (optionally from a ralplan artifact), ' +
-      'implement and verify each story with an executor child, get an ' +
-      'independent reviewer verdict, then a bounded deslop pass and ' +
-      'regression re-run. Writes code in the working tree, never commits. ' +
-      'State in .spiral/ralph/<runId>/.',
-    promptSnippet:
-      'PRD-driven implementation loop with executor, reviewer and deslop pass',
-    promptGuidelines: [
-      'Use the ralph tool when the user asks to implement an approved plan ' +
-        'end to end, says "ralph", or wants guaranteed completion with ' +
-        'verification.',
-      'Prefer passing the ralplan artifact path as `plan` when one exists.',
-      'After the ralph tool returns, report the outcome and the changed ' +
-        'files; do not commit unless the user asks.',
-    ],
-    parameters: Type.Object({
-      task: Type.String({ description: 'Task description to implement' }),
-      plan: Type.Optional(
-        Type.String({
-          description: 'Path to a ralplan artifact to derive stories from',
-        }),
-      ),
-      noDeslop: Type.Optional(
-        Type.Boolean({ description: 'Skip the post-review cleanup pass' }),
-      ),
-      reviewerAgent: Type.Optional(
-        Type.Union([Type.Literal('critic'), Type.Literal('architect')], {
-          description: 'Which agent verifies completion',
-        }),
-      ),
-      models: Type.Optional(
-        Type.Object(
-          {
-            prd: Type.Optional(Type.String()),
-            executor: Type.Optional(Type.String()),
-            reviewer: Type.Optional(Type.String()),
-            cleaner: Type.Optional(Type.String()),
-          },
-          { description: 'Per-role model overrides as provider/model ids' },
-        ),
-      ),
-      preset: Type.Optional(PRESET_PARAM),
-    }),
-    async execute(_toolCallId, params, signal, onUpdate, ctx) {
-      loaded = load(ctx);
-      if (loaded.fallback) {
-        const issues = loaded.issues
-          .map((issue) => `${issue.path}: ${issue.message}`)
-          .join('; ');
-        return {
-          content: [
-            {
-              type: 'text',
-              text: `ralph not started, spiral.json is invalid: ${issues}`,
-            },
-          ],
-          details: { outcome: 'not_started' },
-          isError: true,
-        };
-      }
-      const effective = resolveFor(loaded, params.preset);
-      if (effective.error) return notStarted('ralph', effective.error);
-      const errors = preflight(
-        ctx,
-        'ralph',
-        applyRalphModelOverrides(effective.config.ralph, params.models).roles,
-        ['executor', 'reviewer'],
-      );
-      if (errors.length > 0) {
-        return {
-          content: [
-            {
-              type: 'text',
-              text:
-                'ralph not started, role models unavailable: ' +
-                `${errors.join('; ')}`,
-            },
-          ],
-          details: { outcome: 'not_started' },
-          isError: true,
-        };
-      }
-      const result = await runRalph({
-        parent: parentOf(ctx),
-        permissionAsks: effective.config.permissionAsks,
-        config: effective.config.ralph,
-        agentDir: getAgentDir(),
-        cwd: ctx.cwd,
-        task: params.task,
-        plan: params.plan,
-        noDeslop: params.noDeslop === true,
-        reviewerAgent: params.reviewerAgent,
-        models: params.models,
-        signal,
-        onProgress: (progress) => {
-          const text = formatRalphProgress(progress);
-          persistFinished(progress, text);
-          onUpdate?.({
-            content: [{ type: 'text', text }],
-            details: { iteration: progress.iteration, role: progress.role },
-          });
-        },
-      });
-      // pi treats a tool call as failed only when execute throws.
-      if (result.outcome !== 'completed') {
-        throw new Error(summarizeRalph(result));
-      }
-      return {
-        content: [{ type: 'text', text: summarizeRalph(result) }],
-        details: {
-          outcome: result.outcome,
-          runId: result.runId,
-          runDir: result.runDir,
-          changedFiles: result.changedFiles,
-        },
-      };
     },
   });
 

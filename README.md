@@ -41,7 +41,8 @@ Works right away: every role uses your current pi model.
 | `/spiral-config`                   | Show the effective settings and where they came from                                                               |
 | `/agents`                          | See running child agents, cancel or take over                                                                      |
 
-The model can call both loops too, as the `ralplan` and `ralph` tools.
+Both loops start only from these commands; the model cannot launch them
+on its own.
 
 ## Models and presets
 
