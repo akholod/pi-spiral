@@ -18,6 +18,7 @@
     "planning"
   ],
   "pi": {
+    "image": "https://raw.githubusercontent.com/akholod/pi-spiral/main/assets/hero.webp",
     "extensions": [
       "./extensions"
     ]
