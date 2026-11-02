@@ -30,7 +30,8 @@
     "docs/ARCHITECTURE.md",
     "docs/adr",
     "spiral.config.example.jsonc",
-    "README.md"
+    "README.md",
+    "CHANGELOG.md"
   ],
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -45,9 +46,24 @@
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-ai": {
+      "optional": true
+    },
+    "@earendil-works/pi-coding-agent": {
+      "optional": true
+    },
+    "@earendil-works/pi-tui": {
+      "optional": true
+    },
+    "typebox": {
+      "optional": true
+    }
+  },
   "devDependencies": {
-    "@earendil-works/pi-ai": "^1.1.0",
-    "@earendil-works/pi-coding-agent": "^1.1.0",
+    "@earendil-works/pi-ai": "^1.5.0",
+    "@earendil-works/pi-coding-agent": "^1.5.0",
+    "@earendil-works/pi-tui": "^1.5.0",
     "@types/node": "^24.0.0",
     "eslint": "^9.0.0",
     "eslint-config-metarhia": "^9.0.0",
@@ -57,6 +73,6 @@
     "typescript-eslint": "^8.71.1"
   },
   "dependencies": {
-    "pi-agent-runner": "^0.10.1"
+    "pi-agent-runner": "^0.11.0"
   }
 }

@@ -5,8 +5,14 @@
 //   - delegate each role to a child agent through pi-agent-runner
 //   - expose `/ralplan` + `ralplan` tool and `/ralph` + `ralph` tool
 
+import * as hostTui from '@earendil-works/pi-tui';
 import { Text } from '@earendil-works/pi-tui';
+import * as hostPi from '@earendil-works/pi-coding-agent';
+import { Unsafe } from 'typebox';
+import { Compile } from 'typebox/compile';
 import {
+  bindHostRuntime,
+  humanWaitTracker,
   mountRunsView,
   registerAgentsCommand,
   type ParentContext,
@@ -242,6 +248,12 @@ const makeCheckpointHandler =
   };
 
 export default function spiralExtension(pi: ExtensionAPI) {
+  // Hand the host Pi modules to the runner before any runner UI registration
+  // or delegation: the runner never imports them itself.
+  bindHostRuntime({ pi: hostPi, tui: hostTui, typebox: { Unsafe, Compile } });
+  // Each extension has its own events facade; track human waits on ours.
+  humanWaitTracker(pi.events);
+
   pi.registerEntryRenderer<ProgressEntryData>(
     PROGRESS_ENTRY_TYPE,
     (entry, _options, theme) =>
